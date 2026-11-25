@@ -76,10 +76,26 @@ Two consequences of the same rule:
 `--strict-syntax` restores the all-or-nothing refusal, and `--write-baseline` refuses to freeze an
 incomplete universe instead of locking in debt it could not declare.
 
-The floor is the interpreter, so the ceiling is published: `sqlalchemy` read on the same tree
-(241 files, 2026-11-25) leaves **4 unread under 3.9.6**, **2 under 3.12.13** — the two PEP 750
-t-string files — and **0 under 3.14.8**, with `shadow 0 · ordinal 0 · shared 0` either way. Nothing
-was hidden behind a grammar gate; the gate was only ever a version of `ast`.
+The floor is the interpreter, so the ceiling is measured and published instead of inferred. Same
+trees, three interpreters, `2026-11-25` — a file the old interpreter cannot read is *not* a file
+that hides a collision:
+
+| repository | test files | unread @3.9.6 | unread @3.12.13 | unread @3.14.8 | shadow |
+|---|---|---|---|---|---|
+| `apache/airflow` | 2 412 | 6 | 0 | 0 | 0 |
+| `pandas-dev/pandas` | 994 | 0 | 0 | 0 | 0 |
+| `django/django` | 629 | 2 | 0 | 0 | 0 |
+| `ansible/ansible` | 367 | 0 | 0 | 0 | 0 |
+| `scikit-learn/scikit-learn` | 260 | 0 | 0 | 0 | 0 |
+| `sqlalchemy/sqlalchemy` | 241 | 4 | 2 | 0 | 0 |
+| `pydantic/pydantic` | 140 | 2 | 0 | 0 | 0 |
+| **total** | **5 043** | **14** | **2** | **0** | **0** |
+
+Every one of the 14 files unreadable under 3.9.6 is read under 3.12.13 except the two PEP 750
+`t-string` files in `sqlalchemy`, which 3.14.8 reads. Going forward in versions never lost a file and
+never changed a count: the two columns after the file count are identical, row by row, and every
+shadow count is zero either way. Nothing was hidden behind the parser — the gate was only a version
+of `ast`.
 
 The loss is also named, per file, with the line that stopped the parser:
 
