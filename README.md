@@ -126,6 +126,43 @@ $ test-ordinal-ratchet tests --detail
 "unparsed": [{"path": "tests/test_structural_pattern_matching.py", "lineno": 11, "reason": "invalid syntax"}]
 ```
 
+### The universe is a glob, and a glob can be the wrong one
+
+`test_*.py` and `*_test.py` are the same convention spelled two ways, and a repository picks one.
+A single default glob over the other one is not a zero: it is a zero over a universe that was never
+declared. So a run that finds nothing names the sibling convention and the flag that would read it,
+and a run that finds something counts what it left outside:
+
+```console
+$ test-ordinal-ratchet tests          # a tree whose tests are named the other way
+RC 2: no file matches `test_*.py` under tests (no subject, no zero)
+  2 files match `*_test.py` (e.g. edge_test.py): add --pattern '*_test.py'
+
+$ test-ordinal-ratchet . --pattern 'test_*.py' --pattern '*_test.py'   # pytest, measured
+test-ordinal-ratchet: 123 files · shadow 0 · ordinal 0 · shared 0
+```
+
+Measured over seven real suites (one scan each, default vs both conventions):
+
+| suite | `test_*.py` | both | difference |
+|---|---|---|---|
+| pytest | 118 | 123 | **+5** (`bench/unit_test.py`, `testing/acceptance_test.py`, `testing/deprecated_test.py`, …) |
+| black · celery · click · poetry · requests · rich | 14 · 181 · 43 · 130 · 9 · 63 | identical | 0 |
+
+The five extra files carry **0** additional collisions: the default glob under-reads pytest, and
+reading it does not invent debt. That is why the second convention is offered and counted, not
+silently adopted — the published table below is the default-glob universe, and it says so.
+
+`--json` declares both sides of that universe, so a filtered zero is never a mute zero — the same
+default run over pytest:
+
+```json
+{"files": 118, "patterns": ["test_*.py"],
+ "other_patterns": {"*_test.py": ["bench/unit_test.py", "testing/acceptance_test.py",
+                                 "testing/deprecated_test.py", "testing/python/show_fixtures_per_test.py",
+                                 "testing/example_scripts/perf_examples/collect_stats/template_test.py"]}}
+```
+
 ### A number is not always a sequence ordinal
 
 `test_36_a` and `test_36_b` share *ordinal 36*. `test_1d_margins` and `test_2d_margins` share *the
@@ -208,8 +245,8 @@ RC 1: no baseline to ratchet against
 | `--strict` | also fail (`RC 1`) when two scopes of one file reuse a number |
 | `--strict-syntax` | fail (`RC 2`) when any file does not parse, instead of reading the rest |
 | `--version` | the installed distribution's version — the number to quote when reporting a finding |
-| `--json` | machine-readable output: counts, every collision, `ups`/`zombies`, `unreadable`, `labels_set_aside`, `rc` |
-| `--pattern GLOB` | file glob (default `test_*.py`) |
+| `--json` | machine-readable output: counts, every collision, `ups`/`zombies`, `unreadable`, `labels_set_aside`, `patterns`, `other_patterns`, `rc` |
+| `--pattern GLOB` | file glob (default `test_*.py`); **repeat it** to read several conventions in one run |
 
 ## The ratchet
 
@@ -353,7 +390,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.2.2
+    rev: v0.2.3
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']

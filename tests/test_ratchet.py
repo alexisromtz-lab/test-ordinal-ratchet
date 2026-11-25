@@ -271,6 +271,17 @@ class TheRatchetBites(unittest.TestCase):
         _rc, out = _run(self._argv() + ["--detail"])
         self.assertIn("reuses the ordinal of the definition at", out)
 
+    def test_a_two_pattern_baseline_declares_both_globs(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _write(self.root, "tests/edge_test.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        rc, out = _run(
+            self._argv() + ["--pattern", "test_*.py", "--pattern", "*_test.py", "--write-baseline"]
+        )
+        self.assertEqual(rc, 0, out)
+        payload = json.loads(self.baseline.read_text(encoding="utf-8"))
+        self.assertEqual(payload["pattern"], ["test_*.py", "*_test.py"])
+        self.assertEqual(sorted(payload["debt"]), ["tests/edge_test.py", "tests/test_a.py"])
+
     def test_a_frozen_baseline_absolves_inherited_debt(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
         rc, _ = _run(self._argv() + ["--write-baseline"])
@@ -371,6 +382,32 @@ class TheRatchetBites(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("overwrites the definition at", out)
 
+    def test_a_second_pattern_is_measured_in_the_same_run(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _write(self.root, "tests/edge_test.py", LAW_WITH_SHADOW)
+        rc, out = _run(self._argv() + ["--pattern", "test_*.py", "--pattern", "*_test.py"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("edge_test.py", out)
+
+    def test_a_zero_names_the_sibling_convention(self) -> None:
+        _write(self.root, "tests/edge_test.py", LAW_WITH_SHADOW)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 2, out)
+        self.assertIn("no file matches `test_*.py`", out)
+        self.assertIn("1 file matches `*_test.py`", out)
+        self.assertIn("add --pattern '*_test.py'", out)
+
+    def test_files_outside_the_pattern_are_counted_not_swallowed(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)
+        _write(self.root, "tests/edge_test.py", LAW_WITH_SHADOW)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("note: 1 file matches `*_test.py` and were not read", out)
+        rc, out = _run(self._argv() + ["--json"])
+        data = json.loads(out)
+        self.assertEqual(data["patterns"], ["test_*.py"])
+        self.assertEqual(data["other_patterns"], {"*_test.py": ["tests/edge_test.py"]})
+
     def test_the_version_is_answerable_without_a_tree(self) -> None:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit) as exit_:
@@ -423,7 +460,7 @@ class TheRatchetBites(unittest.TestCase):
         here = os.getcwd()
         os.chdir(self.root)
         try:
-            files, missing = cli._collect(["a/tests", "b/tests"], "test_*.py")
+            files, missing = cli._collect(["a/tests", "b/tests"], ["test_*.py"])
         finally:
             os.chdir(here)
         self.assertEqual(missing, [])
@@ -444,7 +481,7 @@ class TheRatchetBites(unittest.TestCase):
         here = os.getcwd()
         os.chdir(self.root)
         try:
-            files, _missing = cli._collect(["tests", "./tests", "tests/test_a.py"], "test_*.py")
+            files, _missing = cli._collect(["tests", "./tests", "tests/test_a.py"], ["test_*.py"])
         finally:
             os.chdir(here)
         self.assertEqual([key for key, _ in files], ["test_a.py"])

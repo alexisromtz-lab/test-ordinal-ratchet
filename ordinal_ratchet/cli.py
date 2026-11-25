@@ -36,7 +36,7 @@ import json
 import pathlib
 import re
 import sys
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from . import scanner
 
@@ -54,7 +54,12 @@ Counts = Dict[str, int]
 ByFile = Dict[str, Counts]
 
 
-def _collect(paths: Sequence[str], pattern: str) -> Tuple[List[Tuple[str, pathlib.Path]], List[str]]:
+SIBLING = {"test_*.py": "*_test.py", "*_test.py": "test_*.py"}
+
+
+def _collect(
+    paths: Sequence[str], patterns: Sequence[str]
+) -> Tuple[List[Tuple[str, pathlib.Path]], List[str]]:
     """Return (key, file) pairs. The key is relative to the argument that found it.
 
     An absolute key would tie the baseline to the machine where it was frozen,
@@ -73,8 +78,9 @@ def _collect(paths: Sequence[str], pattern: str) -> Tuple[List[Tuple[str, pathli
     for raw in paths:
         entry = pathlib.Path(raw)
         if entry.is_dir():
-            for path in sorted(entry.rglob(pattern)):
-                found.append((raw, path.relative_to(entry).as_posix(), path))
+            for pattern in patterns:
+                for path in sorted(entry.rglob(pattern)):
+                    found.append((raw, path.relative_to(entry).as_posix(), path))
         elif entry.is_file():
             found.append((raw, entry.name, entry))
         else:
@@ -93,6 +99,54 @@ def _collect(paths: Sequence[str], pattern: str) -> Tuple[List[Tuple[str, pathli
             key = pathlib.Path(argument).as_posix().rstrip("/") + "/" + key
         files.append((key, path))
     return sorted(files), missing
+
+
+def _other_convention(
+    paths: Sequence[str], patterns: Sequence[str], files: Sequence[Tuple[str, pathlib.Path]]
+) -> Dict[str, List[str]]:
+    """Files a sibling naming convention reaches and the chosen patterns do not.
+
+    `test_*.py` and `*_test.py` are the same convention spelled two ways, and a
+    repository uses one of them: measured on pytest, the default pattern leaves
+    `testing/acceptance_test.py` and four more unread. A zero over a universe
+    declared by a single glob is not a zero until the sibling glob is counted.
+    """
+    read = {path.resolve() for _, path in files}
+    seen = set(patterns)
+    out: Dict[str, List[str]] = {}
+    for pattern in patterns:
+        sibling = SIBLING.get(pattern)
+        if not sibling or sibling in seen:
+            continue
+        seen.add(sibling)
+        hits: List[str] = []
+        for raw in paths:
+            entry = pathlib.Path(raw)
+            if entry.is_dir():
+                for path in sorted(entry.rglob(sibling)):
+                    if path.resolve() not in read:
+                        hits.append(path.relative_to(entry).as_posix())
+        if hits:
+            out[sibling] = hits
+    return out
+
+
+def _declare_other(other: Dict[str, List[str]], outside: bool) -> None:
+    """Name, on stderr, the files a single glob left out of the universe."""
+    for pattern, hits in sorted(other.items()):
+        verb = "matches" if len(hits) == 1 else "match"
+        if outside:
+            print(
+                "  %s %s `%s` (e.g. %s): add --pattern '%s'"
+                % (_files(len(hits)), verb, pattern, hits[0], pattern),
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "note: %s %s `%s` and were not read (add --pattern '%s', e.g. %s)"
+                % (_files(len(hits)), verb, pattern, pattern, hits[0]),
+                file=sys.stderr,
+            )
 
 
 def _read(files: Sequence[Tuple[str, pathlib.Path]]) -> Dict[str, str]:
@@ -159,7 +213,9 @@ def _debt_of(measured: ByFile) -> ByFile:
     }
 
 
-def _write_baseline(path: pathlib.Path, pattern: str, measured: ByFile) -> None:
+def _write_baseline(
+    path: pathlib.Path, pattern: Union[str, List[str]], measured: ByFile
+) -> None:
     payload = {"version": BASELINE_VERSION, "pattern": pattern, "debt": _debt_of(measured)}
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -183,7 +239,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument("--version", action="version", version="%(prog)s " + _VERSION)
     parser.add_argument("paths", nargs="*", default=["."], help="directories or files")
-    parser.add_argument("--pattern", default="test_*.py", help="file glob inside directories")
+    parser.add_argument(
+        "--pattern",
+        action="append",
+        default=None,
+        help="file glob inside directories, repeatable (default test_*.py; "
+        "add --pattern '*_test.py' where the suite spells it that way)",
+    )
     parser.add_argument(
         "--baseline",
         default=None,
@@ -234,16 +296,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         pathlib.Path(args.baseline) if args.baseline else pathlib.Path(DEFAULT_BASELINE)
     )
 
-    files, missing = _collect(args.paths or ["."], args.pattern)
+    patterns = args.pattern or ["test_*.py"]
+    roots = args.paths or ["."]
+    files, missing = _collect(roots, patterns)
     if missing:
         print("RC 2: path does not exist: %s" % ", ".join(missing), file=sys.stderr)
         return 2
+    other = _other_convention(roots, patterns, files)
     if not files:
         print(
             "RC 2: no file matches `%s` under %s (no subject, no zero)"
-            % (args.pattern, ", ".join(args.paths or ["."])),
+            % ("`, `".join(patterns), ", ".join(roots)),
             file=sys.stderr,
         )
+        _declare_other(other, outside=True)
         return 2
 
     cols, unreadable, labels = scanner.scan(_read(files), label)
@@ -279,7 +345,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     if args.write_baseline:
-        _write_baseline(baseline_path, args.pattern, measured)
+        _write_baseline(
+            baseline_path, patterns[0] if len(patterns) == 1 else list(patterns), measured
+        )
         shadows = totals[scanner.SHADOW]
         if args.json:
             print(
@@ -329,6 +397,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.strict and totals[scanner.SHARED]:
         rc = 1
 
+    if other and not args.json:
+        _declare_other(other, outside=False)
+
     if args.json:
         print(
             json.dumps(
@@ -339,6 +410,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         {"path": u.path, "lineno": u.lineno, "reason": u.reason}
                         for u in unreadable
                     ],
+                    "patterns": list(patterns),
+                    "other_patterns": other,
                     "label_pattern": args.label_pattern,
                     "labels_set_aside": labels,
                     "total": totals,
