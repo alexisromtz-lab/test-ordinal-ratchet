@@ -1,120 +1,175 @@
 # test-ordinal-ratchet
 
-Un lector estático para suites de prueba cuyo **nombre es un identificador** —`test_36_algo`— y
-que, al fusionar ramas, puede dejar de ser inyectivo sin que git diga nada.
+A static reader for Python test suites whose **names are identifiers** — `test_36_something` — and
+where two branches can silently break injectivity without `git` saying a word.
 
-Git compara texto. Dos ramas que añaden `def test_36_a` y `def test_36_b` en puntos distintos del
-mismo fichero fusionan **sin conflicto**, y el resultado no es el mismo tipo de defecto según dónde
-caigan:
+`git` compares text. Two branches that add `def test_36_a` and `def test_36_b` in different places
+of the same file merge with **zero conflicts**, and the result is not the same kind of defect
+depending on where they land:
 
-| clase | qué pasó | ¿alguna prueba deja de correr? |
+| class | what happened | does a test stop running? |
 |---|---|---|
-| `sombra` | mismo nombre, **mismo ámbito** | **sí**: Python deja viva la última, la primera desaparece |
-| `ordinal` | nombres distintos, **mismo ordinal, mismo ámbito** | no, pero `-k test_36` y los informes ya no distinguen |
-| `compartido` | mismo ordinal, **clases distintas del mismo fichero** | no: ámbitos separados, ambas corren |
+| `shadow` | same name, **same scope** | **yes**: Python keeps the last binding, the first one disappears |
+| `ordinal` | different names, **same number, same scope** | no, but `-k test_36` and reports stop disambiguating |
+| `shared` | same number, **different classes of the same file** | no: separate scopes, both run |
 
-El caso que originó la herramienta fue un `compartido`: dos clases del mismo fichero declarando
-`test_36`, git con cero conflictos textuales, las dos pruebas corriendo. La conclusión honesta es
-que la ambigüedad de ordinal **no** era una prueba perdida — y por eso la herramienta separa las
-tres clases en vez de contarlas juntas.
+The case that started this tool was a `shared` one: two classes of the same file declaring
+`test_36`, git with zero textual conflicts, both tests running. The honest conclusion is that ordinal
+ambiguity was **not** a lost test — which is why the tool separates the three classes instead of
+counting them together.
 
-## Instalación
+## Install
 
-Sin dependencias en tiempo de ejecución, Python ≥ 3.9:
+No runtime dependencies, Python ≥ 3.9:
 
 ```console
-$ pip install -e .
+$ pip install .
 $ test-ordinal-ratchet tests
-test-ordinal-ratchet: 319 ficheros · sombra 0 · ordinal 39 · compartido 57
+test-ordinal-ratchet: 319 files · shadow 0 · ordinal 39 · shared 57
 ```
 
-Sin instalar nada:
+Without installing anything:
 
 ```console
 $ python -m ordinal_ratchet tests
 ```
 
-(Todavía no está publicado en PyPI, así que `uvx test-ordinal-ratchet` aún no resuelve. `pip
-install -e .` y `python -m ordinal_ratchet` funcionan hoy.)
+(Not on PyPI yet, so `uvx test-ordinal-ratchet` does not resolve. `pip install .` and
+`python -m ordinal_ratchet` work today.)
 
-## Contrato de salida
+## Output contract
 
-| RC | significado |
+| RC | meaning |
 |---|---|
-| `0` | nada sube sobre la línea base declarada (que puede ser cero) |
-| `1` | una colisión **nueva**, un contador por encima de la base, o deuda declarada que ya no existe |
-| `2` | uso inválido · **ningún** fichero de prueba · un fichero que no parsea |
+| `0` | nothing increased over the declared baseline (which may be zero) |
+| `1` | a **new** collision, a counter above the baseline, or declared debt that no longer exists |
+| `2` | invalid usage · **no** test file matched · a file that does not parse |
 
-`RC 2` existe para que la ausencia de sujeto no se lea como cero: si el glob no encuentra ficheros,
-o un fichero no parsea, no hay medición y la herramienta se niega a decir «limpio».
+`RC 2` exists so that absence of subject is never read as zero: if the glob finds nothing, or a file
+does not parse, there is no measurement and the tool refuses to say "clean".
 
-Un `compartido` **no** hace fallar: es legal y se publica como recuento. Con `--estricto` sí falla,
-para equipos que quieran ordinales únicos por fichero.
+By default only the rows that justify the RC are printed, plus one line with the totals. That is
+deliberate: a legacy suite can carry dozens of legal `shared` ordinals, and printing them on every
+run buries the verdict.
 
-## El trinquete
-
-La deuda heredada se congela una vez y sólo puede bajar:
-
-```console
-$ test-ordinal-ratchet tests --write-baseline     # escribe .ordinal-ratchet.json
 ```
+test-ordinal-ratchet: 319 files · shadow 0 · ordinal 39 · shared 57
+  (39 ordinal entries inherited inside their baseline: not charged; --detail lists them)
+  (57 shared ordinals across scopes: legal, no test is lost; --detail lists them, --strict charges them)
+RC 0: no new collisions over .ordinal-ratchet.json
+```
+
+With **no** baseline file the ratchet has nothing to ratchet against, so every measured `ordinal` is
+charged and the run exits `1` — the safe direction. The output says so instead of calling it a
+regression, and `--write-baseline` freezes the debt in one step:
+
+```
+test-ordinal-ratchet: 319 files · shadow 0 · ordinal 39 · shared 57
+  (no baseline at .ordinal-ratchet.json: nothing is ratcheted yet, so all measured debt is charged; freeze it with --write-baseline)
+  UP tests/test_acoplamiento_por_ruta.py: ordinal +3
+  ...
+RC 1: no baseline to ratchet against
+```
+
+### Flags
+
+| flag | effect |
+|---|---|
+| `--baseline PATH` | baseline file (default `.ordinal-ratchet.json` in the cwd) |
+| `--write-baseline` | freeze the current counts as inherited debt |
+| `--detail` | list every row, including the ones that are not charged |
+| `--strict` | also fail (`RC 1`) when two scopes of one file reuse a number |
+| `--json` | machine-readable output: counts, every collision, `ups`/`zombies`, `rc` |
+| `--pattern GLOB` | file glob (default `test_*.py`) |
+
+## The ratchet
+
+A baseline of inherited debt, keyed by path **relative to the argument you scanned**, so it survives
+cloning and moving:
 
 ```json
 {
   "version": 1,
-  "patron": "test_*.py",
-  "deuda": {
-    "test_orden_de_arranque.py": { "ordinal": 2 }
+  "pattern": "test_*.py",
+  "debt": {
+    "tests/test_startup_order.py": {"ordinal": 2, "shadow": 0}
   }
 }
 ```
 
-De ahí en adelante:
+The ratchet turns one way: the declared count **may go down, never up**. And it charges the opposite
+error too — a declared entry that no longer exists is a `zombie`, `RC 1`:
 
-- más colisiones que la base ⇒ `RC 1` (`SUBE`);
-- **menos** colisiones que la base ⇒ `RC 1` (`ZOMBI`): una deuda que ya no existe y sigue declarada
-  es deuda zombi, y una lista de deuda que no se poda deja de ser evidencia.
-
-Las claves son rutas **relativas** al argumento, no absolutas, para que la base congelada en una
-máquina siga leyéndose al clonar.
-
-## En GitHub Actions
-
-```yaml
-name: ordinal-ratchet
-on: [push, pull_request]
-jobs:
-  ratchet:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: pip install .
-      - run: test-ordinal-ratchet tests
+```
+ZOMBIE tests/test_startup_order.py: ordinal -2 (the debt no longer exists: remove it from the baseline)
 ```
 
-## Medición real
+A debt list nobody prunes stops being evidence. That is why shrinking is legal but lying is not.
 
-Sobre un corpus de 319 ficheros `tests/test_*.py` (2 098 pruebas), `ast` sobre el árbol fusionado:
+## Real-world audit
 
-- `sombra 0`
-- `ordinal 39` en 16 ficheros — 27 son la convención deliberada `test_NNb` (una variante del mismo
-  ordinal dentro de la misma clase: la herramienta la reporta porque `-k test_03` casa las dos), 12
-  son números reusados con nombres distintos
-- `compartido 57`
+Five well-known suites, shallow clone of the default branch, 2026-11-25, Python 3.9.6:
 
-Esa distinción es la que hace útil el recuento: 57 usos legales de un ordinal entre clases se
-verían idénticos a 57 pruebas perdidas si el lector contara sólo números.
+| repository | test files | shadow | ordinal | shared | RC |
+|---|---|---|---|---|---|
+| `psf/requests` | 9 | 0 | 0 | 0 | 0 |
+| `encode/httpx` | 31 | 0 | 0 | 0 | 0 |
+| `pytest-dev/pytest` | 118 | 0 | 0 | 0 | 0 |
+| `Textualize/rich` | 63 | **2** | 0 | 0 | 1 |
+| `pydantic/pydantic` | — | — | — | — | 2 |
 
-## Límites declarados
+`rich` is the interesting one. `tests/test_console.py` defines two module-level functions twice:
 
-- **No ejecuta nada.** Lee `def`/`async def test*` en ámbito de módulo y de clase. No sabe nada de
-  pruebas generadas en tiempo de ejecución (bucles, `setattr`, factorías, `parametrize`).
-- **Un fichero es un universo.** Dos ficheros distintos pueden tener cada uno su `test_36`: son
-  ámbitos separados y no se reportan.
-- **Parsea, no adivina.** Un fichero con sintaxis que el intérprete en curso no entiende da `RC 2`,
-  nunca «cero colisiones».
-- El ordinal es el prefijo `test_<dígitos>`; `test_caso_36` no tiene ordinal.
+- `test_soft_wrap` at `:47` and again at `:603` — the first one never runs;
+- `test_force_color` at `:952`, **parametrized with three values**, and again at `:967` without
+  parameters — the parametrized version is garbage-collected at class definition time.
 
-## Licencia
+Python's semantics are not ambiguous here; a three-line reproduction shows the loss:
 
-MIT.
+```python
+import pytest
+
+@pytest.mark.parametrize("env_value", ["", "something", "0"])
+def test_force_color(env_value):
+    assert env_value in ("", "something", "0")
+
+def test_force_color():
+    assert True
+```
+
+```console
+$ pytest test_proof.py --collect-only -q
+test_proof.py::test_force_color
+1 test collected
+```
+
+One test collected out of four. `git` sees nothing; CI stays green.
+
+`pydantic` exits `RC 2` because its suites use `match` statements (3.10+) and the interpreter running
+the scan was 3.9: the tool refuses to report as "clean" what it could not parse. Run it under the
+interpreter your project targets.
+
+## GitHub Actions
+
+```yaml
+- run: pip install .
+- run: test-ordinal-ratchet tests
+```
+
+A full workflow is in `.github/workflows/ratchet.yml`.
+
+## Declared limits
+
+- It **does not execute** anything: it reads definitions from the AST.
+- One file is one universe. Cross-file scope, plugins that rewrite collection, and dynamic binding
+  beyond plain `def`/`class` nesting are out of scope.
+- Numbers are recognized only as a `test_` prefix followed by digits (`test_36_x`); `test_case_36`
+  is not an ordinal.
+- A file that does not parse is `RC 2`, never a silent zero.
+- `shadow` reports the **last** binding and the line of the first one it overwrites.
+- Baseline keys are argument-relative: scanning `../other/tests` and `tests` from different
+  directories produces different keys. Freeze the baseline from the directory you will run from.
+
+## License
+
+MIT — see `LICENSE`.

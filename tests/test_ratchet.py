@@ -1,4 +1,4 @@
-"""El lector y su trinquete: sombra silenciosa, ordinal por ambito, ordinal compartido."""
+"""The reader and its ratchet: silent shadow, ordinal per scope, shared ordinal."""
 
 from __future__ import annotations
 
@@ -14,33 +14,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ordinal_ratchet import cli, scanner  # noqa: E402
 
-# Caso real (medido al fusionar dos ramas de un corpus de 319 bancos): dos clases
-# distintas del mismo fichero declaran `test_36`. Legal: las dos corren.
-LEY_CON_ORDINAL_COMPARTIDO = """
+# Real case (measured when merging two branches of a 319-bank corpus): two
+# different classes of the same file both declare `test_36`. Legal: both run.
+LAW_WITH_SHARED_ORDINAL = """
 import unittest
 
 
-class ElPredicado(unittest.TestCase):
-    def test_36_una_deuda_larga_da_rojo(self):
+class ThePredicate(unittest.TestCase):
+    def test_36_debt_that_runs_long_goes_red(self):
         pass
 
 
-class LaVentana(unittest.TestCase):
-    def test_36_la_ventana_no_cobra_la_simulacion(self):
-        pass
-"""
-
-LEY_CON_ORDINAL_EN_UN_AMBITO = """
-class Codigos:
-    def test_1_el_bloqueo_gana(self):
-        pass
-
-    def test_1_bloqueo_sin_una_sola_cita(self):
+class TheWindow(unittest.TestCase):
+    def test_36_the_window_does_not_charge_the_simulation(self):
         pass
 """
 
-LEY_CON_SOMBRA = """
-class LaVentana:
+LAW_WITH_ORDINAL_IN_ONE_SCOPE = """
+class Codes:
+    def test_1_the_lock_wins(self):
+        pass
+
+    def test_1_lock_without_a_single_citation(self):
+        pass
+"""
+
+LAW_WITH_SHADOW = """
+class TheWindow:
     def test_36_a(self):
         pass
 
@@ -49,146 +49,176 @@ class LaVentana:
 """
 
 
-def _escribir(raiz: Path, rel: str, texto: str) -> Path:
-    destino = raiz / rel
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_text(texto, encoding="utf-8")
-    return destino
+def _write(root: Path, rel: str, text: str) -> Path:
+    target = root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    return target
 
 
-def _correr(argv):
-    salida = io.StringIO()
-    with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(salida):
+def _run(argv):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         rc = cli.main(argv)
-    return rc, salida.getvalue()
+    return rc, out.getvalue()
 
 
-class ElLectorVeLaSombraYElOrdinal(unittest.TestCase):
-    def test_un_nombre_repetido_en_el_mismo_ambito_es_sombra(self) -> None:
-        cols = scanner.colisiones(scanner.definiciones(LEY_CON_SOMBRA, "ley.py"))
-        self.assertEqual([c.clase for c in cols], [scanner.SOMBRA])
-        self.assertEqual(cols[0].primera, 3)
+class TheReaderSeesTheShadowAndTheOrdinal(unittest.TestCase):
+    def test_a_repeated_name_in_the_same_scope_is_shadow(self) -> None:
+        cols = scanner.collisions(scanner.definitions(LAW_WITH_SHADOW, "law.py"))
+        self.assertEqual([c.kind for c in cols], [scanner.SHADOW])
+        self.assertEqual(cols[0].first, 3)
 
-    def test_el_mismo_nombre_en_clases_distintas_no_es_sombra(self) -> None:
-        fuente = """
+    def test_the_same_name_in_different_classes_is_not_shadow(self) -> None:
+        source = """
 class A:
-    def test_algo(self):
+    def test_something(self):
         pass
 
 
 class B:
-    def test_algo(self):
+    def test_something(self):
         pass
 """
-        self.assertEqual(scanner.colisiones(scanner.definiciones(fuente, "ley.py")), [])
+        self.assertEqual(scanner.collisions(scanner.definitions(source, "law.py")), [])
 
-    def test_dos_nombres_distintos_con_el_mismo_ordinal_en_un_ambito_es_ordinal(self) -> None:
-        cols = scanner.colisiones(scanner.definiciones(LEY_CON_ORDINAL_EN_UN_AMBITO, "ley.py"))
-        self.assertEqual([c.clase for c in cols], [scanner.ORDINAL])
-        self.assertEqual(cols[0].ambito, "Codigos")
-        self.assertEqual((cols[0].linea, cols[0].primera), (6, 3))
+    def test_two_names_sharing_an_ordinal_in_one_scope_is_ordinal(self) -> None:
+        cols = scanner.collisions(scanner.definitions(LAW_WITH_ORDINAL_IN_ONE_SCOPE, "law.py"))
+        self.assertEqual([c.kind for c in cols], [scanner.ORDINAL])
+        self.assertEqual(cols[0].scope, "Codes")
+        self.assertEqual((cols[0].line, cols[0].first), (6, 3))
 
-    def test_el_mismo_ordinal_en_dos_clases_se_cuenta_pero_no_es_ordinal(self) -> None:
-        cols = scanner.colisiones(scanner.definiciones(LEY_CON_ORDINAL_COMPARTIDO, "ley.py"))
-        self.assertEqual([c.clase for c in cols], [scanner.COMPARTIDO])
+    def test_the_same_ordinal_in_two_classes_is_counted_but_not_ordinal(self) -> None:
+        cols = scanner.collisions(scanner.definitions(LAW_WITH_SHARED_ORDINAL, "law.py"))
+        self.assertEqual([c.kind for c in cols], [scanner.SHARED])
 
-    def test_un_nombre_dentro_de_un_docstring_no_define_nada(self) -> None:
-        fuente = '''
-"""def test_36_de_mentira(): pass
-def test_36_tambien_de_mentira(): pass
+    def test_a_name_inside_a_docstring_defines_nothing(self) -> None:
+        source = '''
+"""def test_36_fake(): pass
+def test_36_also_fake(): pass
 """
 
 
 def test_1_real():
     pass
 '''
-        self.assertEqual(scanner.colisiones(scanner.definiciones(fuente, "ley.py")), [])
+        self.assertEqual(scanner.collisions(scanner.definitions(source, "law.py")), [])
 
-    def test_sombra_y_ordinal_no_se_cuentan_dos_veces_sobre_el_mismo_par(self) -> None:
-        cuenta = scanner.recuento(
-            scanner.colisiones(scanner.definiciones(LEY_CON_SOMBRA, "ley.py"))
-        )
-        self.assertEqual(cuenta, {"sombra": 1, "ordinal": 0, "compartido": 0})
+    def test_shadow_and_ordinal_are_not_counted_twice_over_the_same_pair(self) -> None:
+        tally = scanner.count(scanner.collisions(scanner.definitions(LAW_WITH_SHADOW, "law.py")))
+        self.assertEqual(tally, {"shadow": 1, "ordinal": 0, "shared": 0})
 
-    def test_un_fichero_que_no_parsea_es_ilegible_y_no_cero(self) -> None:
-        _cols, ilegibles = scanner.escanear({"ley.py": "def test_1(:\n"})
-        self.assertEqual(list(ilegibles), ["ley.py"])
+    def test_a_file_that_does_not_parse_is_unreadable_not_zero(self) -> None:
+        _cols, unreadable = scanner.scan({"law.py": "def test_1(:\n"})
+        self.assertEqual(list(unreadable), ["law.py"])
 
 
-class ElTrinqueteMuerde(unittest.TestCase):
+class TheRatchetBites(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
-        self.raiz = Path(self._tmp.name)
-        self.base = self.raiz / ".ordinal-ratchet.json"
+        self.root = Path(self._tmp.name)
+        self.baseline = self.root / ".ordinal-ratchet.json"
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
     def _argv(self):
-        return [str(self.raiz), "--ratchet", str(self.base)]
+        return [str(self.root), "--baseline", str(self.baseline)]
 
-    def test_un_arbol_limpio_da_rc_0(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", "def test_1_a():\n    pass\n")
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 0, salida)
-        self.assertIn("sombra 0", salida)
+    def test_a_clean_tree_is_rc_0(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_1_a():\n    pass\n")
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("shadow 0", out)
 
-    def test_un_ordinal_en_un_ambito_sobre_linea_base_vacia_da_rc_1(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", LEY_CON_ORDINAL_EN_UN_AMBITO)
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 1, salida)
-        self.assertIn("SUBE", salida)
+    def test_an_ordinal_over_an_empty_baseline_is_rc_1(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("UP", out)
+        self.assertIn("reuses the ordinal of the definition at", out)
 
-    def test_un_ordinal_compartido_no_falla_salvo_en_estricto(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", LEY_CON_ORDINAL_COMPARTIDO)
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 0, salida)
-        self.assertIn("compartido 1", salida)
-        rc, salida = _correr(self._argv() + ["--estricto"])
-        self.assertEqual(rc, 1, salida)
+    def test_a_missing_baseline_says_so_instead_of_calling_it_a_regression(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no baseline at", out)
+        self.assertIn("no baseline to ratchet against", out)
+        self.assertNotIn("files go up", out)
 
-    def test_la_base_congelada_absuelve_la_deuda_heredada(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", LEY_CON_ORDINAL_EN_UN_AMBITO)
-        rc, _ = _correr(self._argv() + ["--write-baseline"])
+        rc, out = _run(self._argv() + ["--json"])
+        self.assertFalse(json.loads(out)["baseline_present"])
+
+    def test_a_shared_ordinal_does_not_fail_unless_strict(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("shared 1", out)
+        rc, out = _run(self._argv() + ["--strict"])
+        self.assertEqual(rc, 1, out)
+
+    def test_the_shared_detail_does_not_drown_the_verdict(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)
+        _rc, out = _run(self._argv())
+        self.assertIn("shared 1", out)
+        self.assertIn("--detail lists them", out)
+        self.assertNotIn("legal: no test stops running", out)
+        _rc, out = _run(self._argv() + ["--detail"])
+        self.assertIn("legal: no test stops running", out)
+
+    def test_the_default_output_only_shows_what_is_charged(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _run(self._argv() + ["--write-baseline"])
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ordinal 1", out)
+        self.assertNotIn("reuses the ordinal of the definition at", out)
+        self.assertIn("--detail lists them", out)
+        _rc, out = _run(self._argv() + ["--detail"])
+        self.assertIn("reuses the ordinal of the definition at", out)
+
+    def test_a_frozen_baseline_absolves_inherited_debt(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        rc, _ = _run(self._argv() + ["--write-baseline"])
         self.assertEqual(rc, 0)
-        deuda = json.loads(self.base.read_text(encoding="utf-8"))["deuda"]
-        self.assertEqual(deuda["tests/test_a.py"]["ordinal"], 1)
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 0, salida)
+        debt = json.loads(self.baseline.read_text(encoding="utf-8"))["debt"]
+        self.assertEqual(debt["tests/test_a.py"]["ordinal"], 1)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 0, out)
 
-    def test_una_colision_nueva_sobre_la_base_da_rc_1(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", LEY_CON_ORDINAL_EN_UN_AMBITO)
-        _correr(self._argv() + ["--write-baseline"])
-        _escribir(self.raiz, "tests/test_b.py", LEY_CON_SOMBRA)
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 1, salida)
-        self.assertIn("tests/test_b.py", salida)
+    def test_a_new_collision_over_the_baseline_is_rc_1(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _run(self._argv() + ["--write-baseline"])
+        _write(self.root, "tests/test_b.py", LAW_WITH_SHADOW)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("tests/test_b.py", out)
 
-    def test_una_deuda_resuelta_que_sigue_declarada_da_rc_1(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", LEY_CON_ORDINAL_EN_UN_AMBITO)
-        _correr(self._argv() + ["--write-baseline"])
-        _escribir(self.raiz, "tests/test_a.py", "def test_36_unico():\n    pass\n")
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 1, salida)
-        self.assertIn("ZOMBI", salida)
+    def test_a_resolved_debt_still_declared_is_rc_1(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _run(self._argv() + ["--write-baseline"])
+        _write(self.root, "tests/test_a.py", "def test_36_only():\n    pass\n")
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ZOMBIE", out)
 
-    def test_sin_ficheros_de_prueba_da_rc_2(self) -> None:
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 2, salida)
+    def test_no_test_files_is_rc_2(self) -> None:
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 2, out)
 
-    def test_un_fichero_que_no_parsea_da_rc_2(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", "def test_1(:\n")
-        rc, salida = _correr(self._argv())
-        self.assertEqual(rc, 2, salida)
+    def test_a_file_that_does_not_parse_is_rc_2(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_1(:\n")
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 2, out)
 
-    def test_json_trae_el_recuento_y_el_rc(self) -> None:
-        _escribir(self.raiz, "tests/test_a.py", LEY_CON_ORDINAL_COMPARTIDO)
-        rc, salida = _correr(self._argv() + ["--json"])
-        self.assertEqual(rc, 0, salida)
-        datos = json.loads(salida)
-        self.assertEqual(datos["total"], {"sombra": 0, "ordinal": 0, "compartido": 1})
-        self.assertEqual(datos["rc"], 0)
-        self.assertEqual(datos["colisiones"][0]["nombre"], "ordinal 36 en 2 ambitos")
+    def test_json_carries_the_counts_and_the_rc(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)
+        rc, out = _run(self._argv() + ["--json"])
+        self.assertEqual(rc, 0, out)
+        data = json.loads(out)
+        self.assertEqual(data["total"], {"shadow": 0, "ordinal": 0, "shared": 1})
+        self.assertEqual(data["rc"], 0)
+        self.assertEqual(data["collisions"][0]["name"], "ordinal 36 in 2 scopes")
 
 
 if __name__ == "__main__":

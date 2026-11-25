@@ -5,14 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "test-ordinal-ratchet"
 version = "0.1.0"
-description = "Detecta nombres de prueba pisados o con ordinal repetido, con trinquete de deuda heredada"
+description = "Detect test names that overwrite each other or reuse an ordinal, with a one-way ratchet over inherited debt"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-keywords = ["testing", "lint", "merge", "pytest", "unittest", "agent"]
+keywords = ["testing", "lint", "merge", "pytest", "unittest", "static-analysis", "ci"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  "License :: OSI Approved :: MIT License",
 ]
 dependencies = []
 
