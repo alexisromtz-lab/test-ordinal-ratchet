@@ -39,14 +39,8 @@ import re
 import sys
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+from . import __version__ as _VERSION
 from . import scanner
-
-try:
-    from importlib.metadata import version as _installed_version
-
-    _VERSION = _installed_version("test-ordinal-ratchet")
-except Exception:  # a source checkout that was never installed
-    _VERSION = "0+unknown"
 
 DEFAULT_BASELINE = ".ordinal-ratchet.json"
 BASELINE_VERSION = 1

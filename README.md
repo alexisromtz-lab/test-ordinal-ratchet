@@ -36,13 +36,21 @@ test-ordinal-ratchet: 1 file · shadow 0 · ordinal 0 · shared 0
 RC 0: no new collisions over .ordinal-ratchet.json, on 1 of 1 file read
 ```
 
-Not on PyPI yet, so `uvx test-ordinal-ratchet` does not resolve — but the repository does, and the
-console script is reachable by its own name (verified against `v0.1.1` on 2026-11-25: it builds and
-prints the same report):
+Not on PyPI yet, so `uvx test-ordinal-ratchet` does not resolve — but the repository and its tags do,
+and the console script is reachable by its own name. **Pin the tag**: an unpinned `--from git+…`
+reads `main`, so the same documented command would print different numbers next month. Measured on
+`2026-11-25`: tag `v0.2.5` and the wheel shipped in its release agree **byte for byte** on the three
+package modules, produce identical JSON over `Textualize/rich` (63 files, 2 shadows, `RC 1`), and
+answer `--version` with the version their metadata declares.
 
 ```console
-$ uvx --from git+https://github.com/alexisromtz-lab/test-ordinal-ratchet test-ordinal-ratchet tests
+$ uvx --from git+https://github.com/alexisromtz-lab/test-ordinal-ratchet@v0.2.6 test-ordinal-ratchet tests
 ```
+
+That last clause is the reason for `v0.2.6`: `import ordinal_ratchet; __version__` answered `0.1.0`
+in a `0.2.5` wheel — two surfaces for one fact, one of them stale since `v0.1.0`, and nothing
+compared them. Both surfaces now read the installed distribution, and two tests plus two mutations
+hold them there.
 
 ## Output contract
 
@@ -432,11 +440,16 @@ numbers. The finding is literally true (`-k test_404` matches two tests and disa
 but reading them as collisions of a *sequence* is wrong, and `--label-pattern '^test_[1-5]\d\d_'`
 takes them out without touching `shadow`.
 
-`rich` is the interesting one. `tests/test_console.py` defines two module-level functions twice:
+`rich` is the interesting one — audited at `Textualize/rich@3a109ccd` (2026-11-07, 63 test files).
+`tests/test_console.py` defines two module-level functions twice:
 
 - `test_soft_wrap` at `:47` and again at `:603` — the first one never runs;
 - `test_force_color` at `:952`, **parametrized with three values**, and again at `:967` without
   parameters — the parametrized version is garbage-collected at class definition time.
+
+Measured, not reasoned: `pytest --collect-only -q tests/test_console.py` collects **100** tests and
+exactly **one** `test_soft_wrap` and **one** `test_force_color`. Six definitions' worth of tests
+reach collection as two, and the four that never run leave no mark on a green suite.
 
 Python's semantics are not ambiguous here; a three-line reproduction shows the loss:
 
@@ -514,7 +527,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.2.5
+    rev: v0.2.6
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']
@@ -551,7 +564,7 @@ A full workflow is in `.github/workflows/ratchet.yml`.
 
 ## How this is tested
 
-53 tests, and a mutation audit of the tests themselves. A passing test says the code does what the
+55 tests, and a mutation audit of the tests themselves. A passing test says the code does what the
 test asserts; it does not say the test would notice if the code stopped doing it, and a guard whose
 removal no test notices is not a guard — it is a comment with a colour.
 
@@ -559,11 +572,14 @@ removal no test notices is not a guard — it is a comment with a colour.
 python tools/mutar.py
 ```
 
-The harness holds **26 mutations**, each hoisting one promise out of `scanner.py` or `cli.py`: the
+The harness holds **28 mutations**, each hoisting one promise out of `scanner.py`, `cli.py` or
+`__init__.py`: the
 ordinal needs its underscore, `async def` is read, a class body is read, a repeated name in one scope
 is a shadow, the label declaration is honoured in the ordinal pass, a frozen glob **and** a frozen
 label pattern are both checked on read, a shadow can never be frozen into the baseline, two homonym
-roots keep two keys. Every anchor must appear exactly once before anything is written; the package
+roots keep two keys, and the version a consumer reads is the installed distribution's on both
+surfaces (`__version__` and `--version`). Every anchor must appear exactly once before anything is
+written; the package
 and its tests are copied into a temporary directory and the suite runs there, so nothing touches the
 checkout.
 
@@ -573,7 +589,7 @@ checkout.
 | `1` | at least one survived — it names the promise that has no falsifier |
 | `2` | the harness cannot measure: an anchor is missing or is not unique |
 
-The first run left **8** of 26 alive: 4 were the harness's own anchors landing on a missing or
+The first run — 26 mutations at the time — left **8** alive: 4 were the harness's own anchors landing on a missing or
 duplicated line, and **4 were real holes** — a `testcase` name (pytest collects `test*`, not
 `test_*`) was never read as a definition, the set-aside list was ordered by name instead of by
 locus, two set-aside names in one file collapsed into one term, and a baseline frozen over two globs
@@ -583,7 +599,7 @@ ratcheted and an unratcheted count leaked the unratcheted one into the frozen ba
 falsifier per hole, and one strengthened to a file that carries both kinds of debt:
 
 ```
-26 mutations · 26 killed · 0 survived
+28 mutations · 28 killed · 0 survived
 ```
 
 `tools/` is not part of the installed package: this is the audit of the repository, not a feature of

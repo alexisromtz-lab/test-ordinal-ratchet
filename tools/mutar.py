@@ -189,6 +189,18 @@ MUTATIONS: List[Mutation] = [
         '                    "label_file": [',
         "the census is published under its declared key",
     ),
+    Mutation(
+        "ordinal_ratchet/__init__.py",
+        '    __version__ = _installed_version("test-ordinal-ratchet")',
+        '    __version__ = "0.1.0"',
+        "the version is the installed one, not a literal",
+    ),
+    Mutation(
+        "ordinal_ratchet/cli.py",
+        'parser.add_argument("--version", action="version", version="%(prog)s " + _VERSION)',
+        'parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")',
+        "the CLI reports the package version, not its own literal",
+    ),
 ]
 
 

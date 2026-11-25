@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib.metadata as metadata
 import io
 import json
 import os
@@ -15,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ordinal_ratchet import cli, scanner  # noqa: E402
+import ordinal_ratchet  # noqa: E402
 
 # Real case (measured when merging two branches of a 319-bank corpus): two
 # different classes of the same file both declare `test_36`. Legal: both run.
@@ -616,6 +618,33 @@ class TheRatchetBites(unittest.TestCase):
         finally:
             os.chdir(here)
         self.assertEqual([key for key, _ in files], ["test_a.py"])
+
+
+class ThePublishedIdentity(unittest.TestCase):
+    """Two environments, both real: CI installs the package, so its metadata
+    exists; a source checkout has none. Neither may answer with a number that is
+    not the distribution's. A literal `0.1.0` sat in the module for four
+    releases while `--version` said `0.2.5`, because nothing compared the two.
+    """
+
+    def _installed(self) -> str:
+        try:
+            return metadata.version("test-ordinal-ratchet")
+        except metadata.PackageNotFoundError:
+            return "0+unknown"
+
+    def test_the_module_version_is_the_installed_one(self) -> None:
+        self.assertEqual(ordinal_ratchet.__version__, self._installed())
+
+    def test_the_cli_reports_the_module_version(self) -> None:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer), self.assertRaises(SystemExit) as exit:
+            cli.main(["--version"])
+        self.assertEqual(exit.exception.code, 0)
+        self.assertTrue(
+            buffer.getvalue().strip().endswith(ordinal_ratchet.__version__),
+            buffer.getvalue(),
+        )
 
 
 if __name__ == "__main__":
