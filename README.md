@@ -529,6 +529,12 @@ A full workflow is in `.github/workflows/ratchet.yml`.
   `scikit-learn` (0), `pandas` (1: `test_sas7bdat.py`), `airflow` (0) and `aiohttp` (0), the
   cross-overlap is **0**. The declaration is the repository's own statement that those numbers are
   not a sequence, so the crossing is not charged — it is declared instead of being silent.
+- **The ledger counts, it does not keep identity.** Each class is a number per file, so a change
+  that fixes one ordinal collision and introduces another **in the same file** nets to zero and is
+  not charged. Measured rather than assumed: over 58 real commit transitions (`scikit-learn`
+  `--depth 40`, `pandas` `--depth 20`, 2026-11-25) touching 10 debt-bearing files, the event fired
+  **0 times**. Recording each colliding number would charge every renumbering as new debt — a false
+  red traded for a false green nobody has observed. Declared, not built.
 - Baseline keys are argument-relative: scanning `../other/tests` and `tests` from different
   directories produces different keys. Freeze the baseline from the directory you will run from.
   The globs and the label pattern **are** recorded, so reading across either is `RC 2`; the roots
