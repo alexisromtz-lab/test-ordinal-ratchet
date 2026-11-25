@@ -76,26 +76,42 @@ Two consequences of the same rule:
 `--strict-syntax` restores the all-or-nothing refusal, and `--write-baseline` refuses to freeze an
 incomplete universe instead of locking in debt it could not declare.
 
-The floor is the interpreter, so the ceiling is measured and published instead of inferred. Same
-trees, three interpreters, `2026-11-25` — a file the old interpreter cannot read is *not* a file
-that hides a collision:
+The floor is the interpreter, so the ceiling is measured and published instead of inferred. All
+**21 repositories**, one scan each (`tests/` when it exists, repository root otherwise), three
+interpreters, `2026-11-25` — a file the old interpreter cannot read is *not* a file that hides a
+collision:
 
 | repository | test files | unread @3.9.6 | unread @3.12.13 | unread @3.14.8 | shadow |
 |---|---|---|---|---|---|
 | `apache/airflow` | 2 412 | 6 | 0 | 0 | 0 |
+| `saleor/saleor` | 1 236 | 0 | 0 | 0 | 0 |
 | `pandas-dev/pandas` | 994 | 0 | 0 | 0 | 0 |
 | `django/django` | 629 | 2 | 0 | 0 | 0 |
+| `fastapi/fastapi` | 550 | 0 | 0 | 0 | 0 |
 | `ansible/ansible` | 367 | 0 | 0 | 0 | 0 |
 | `scikit-learn/scikit-learn` | 260 | 0 | 0 | 0 | 0 |
 | `sqlalchemy/sqlalchemy` | 241 | 4 | 2 | 0 | 0 |
+| `fastapi/typer` | 211 | 0 | 0 | 0 | 0 |
+| `celery/celery` | 181 | 0 | 0 | 0 | 0 |
 | `pydantic/pydantic` | 140 | 2 | 0 | 0 | 0 |
-| **total** | **5 043** | **14** | **2** | **0** | **0** |
+| `python-poetry/poetry` | 130 | 0 | 0 | 0 | 0 |
+| `pytest-dev/pytest` | 118 | 0 | 0 | 0 | 0 |
+| `aiohttp/aiohttp` | 78 | 0 | 0 | 0 | 0 |
+| `Textualize/rich` | 63 | 0 | 0 | 0 | **2** |
+| `pallets/click` | 43 | 0 | 0 | 0 | 0 |
+| `encode/starlette` | 31 | 0 | 0 | 0 | 0 |
+| `encode/httpx` | 31 | 0 | 0 | 0 | 0 |
+| `pallets/flask` | 22 | 0 | 0 | 0 | 0 |
+| `psf/black` | 14 | 0 | 0 | 0 | 0 |
+| `psf/requests` | 9 | 0 | 0 | 0 | 0 |
+| **total** | **7 760** | **14** | **2** | **0** | **2** |
 
-Every one of the 14 files unreadable under 3.9.6 is read under 3.12.13 except the two PEP 750
-`t-string` files in `sqlalchemy`, which 3.14.8 reads. Going forward in versions never lost a file and
-never changed a count: the two columns after the file count are identical, row by row, and every
-shadow count is zero either way. Nothing was hidden behind the parser — the gate was only a version
-of `ast`.
+Twelve of the 14 files unreadable under 3.9.6 are read under 3.12.13, and the two PEP 750 `t-string`
+files of `sqlalchemy` are read under 3.14.8, where the unreadable count is zero everywhere. Going
+forward in versions never lost a file and never changed a verdict: on the row where a version
+difference exists the collisions are identical at all three (`shadow 0 · ordinal 0`), and every other
+row is identical by having nothing to compare. Nothing was hidden behind the parser — the gate was
+only a version of `ast`.
 
 The loss is also named, per file, with the line that stopped the parser:
 
@@ -257,8 +273,10 @@ a declared label space:
 | `scikit-learn/scikit-learn` | 260 | 0 | 7 | 0 |
 | **total** | **5 269** | **0** | **27** | **4** |
 
-**7 782 distinct files** over **23 repositories** — 8 605 reads, because four suites were scanned
-twice — and two silent lost tests, both in the same file of the same project. Across the whole sweep
+**7 760 distinct files** over **21 repositories**, one scan each — 23 280 parses across the three
+interpreters — plus a second look at the repository root for the five async-heavy suites, which
+adds 21 files the `tests/` scan does not reach and does not add a repository. Two silent lost tests,
+both in the same file of the same project. Across the whole sweep
 the heuristic charges **31** `ordinal` rows: **27** have a shape a declared pattern can name (23 in
 the five large suites plus `aiohttp`'s four), **1** is a genuinely reused ordinal (`airflow`'s
 `test_7_…` at `:849` and `:890`), and **3** are numbers that look exactly like sequence ordinals and
@@ -289,9 +307,9 @@ parse because they use syntax newer than the interpreter (`test_tstring_py314.py
 t-strings). Before that change it was `RC 2` over the whole repository — a 239-file audit refused
 because of files that are not even code for the interpreter running them.
 
-The two interpreters agree on every collision and disagree on coverage: run on 3.9.6 the same
-repositories lose **8** files (django 2, pydantic 2, sqlalchemy 4) and every count above is
-unchanged. Point the tool at the interpreter the project targets; when you cannot, the loss is
+The three interpreters agree on every collision and disagree on coverage: run on 3.9.6 the same
+repositories lose **14** files (airflow 6, sqlalchemy 4, django 2, pydantic 2) and every count above
+is unchanged. Point the tool at the interpreter the project targets; when you cannot, the loss is
 declared instead of swallowed.
 
 `django`'s five `ordinal` rows are all HTTP status codes — `400`, `403`, `404` — not sequence
