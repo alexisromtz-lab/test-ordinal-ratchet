@@ -287,6 +287,45 @@ class TheRatchetBites(unittest.TestCase):
         self.assertEqual(payload["pattern"], ["test_*.py", "*_test.py"])
         self.assertEqual(sorted(payload["debt"]), ["tests/edge_test.py", "tests/test_a.py"])
 
+    def test_a_baseline_frozen_over_a_label_space_refuses_a_run_that_declares_none(
+        self,
+    ) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_HTTP_CODE_LABELS)
+        rc, out = _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_", "--write-baseline"])
+        self.assertEqual(rc, 0, out)
+        payload = json.loads(self.baseline.read_text(encoding="utf-8"))
+        self.assertEqual(payload["label_pattern"], r"^test_[1-5]\d\d_")
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 2, out)
+        self.assertIn("frozen with --label-pattern", out)
+        self.assertIn("this run declares none", out)
+
+    def test_a_baseline_frozen_without_a_label_space_refuses_a_run_that_sets_one(
+        self,
+    ) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_HTTP_CODE_LABELS)
+        rc, out = _run(self._argv() + ["--write-baseline"])
+        self.assertEqual(rc, 0, out)
+        rc, out = _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("frozen with no --label-pattern", out)
+
+    def test_the_same_label_space_reads_the_baseline_it_wrote(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_HTTP_CODE_LABELS)
+        _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_", "--write-baseline"])
+        rc, out = _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_"])
+        self.assertEqual(rc, 0, out)
+
+    def test_a_baseline_frozen_over_one_glob_refuses_to_be_read_over_another(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _write(self.root, "tests/edge_test.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        rc, out = _run(self._argv() + ["--write-baseline"])
+        self.assertEqual(rc, 0, out)
+        rc, out = _run(self._argv() + ["--pattern", "*_test.py"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("not comparable", out)
+        self.assertIn("this run measures `*_test.py`", out)
+
     def test_a_frozen_baseline_absolves_inherited_debt(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
         rc, _ = _run(self._argv() + ["--write-baseline"])

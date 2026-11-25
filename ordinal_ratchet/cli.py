@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import json
 import pathlib
 import re
@@ -159,22 +160,73 @@ def _read(files: Sequence[Tuple[str, pathlib.Path]]) -> Dict[str, str]:
     return sources
 
 
-def _load_baseline(path: pathlib.Path) -> Tuple[ByFile, Optional[str]]:
+def _as_patterns(value: object) -> Optional[Tuple[str, ...]]:
+    """A baseline's `pattern` as a comparable tuple; None when it declares nothing."""
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return tuple(sorted(set(value)))
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class Baseline:
+    """Inherited debt plus the universe it was frozen over.
+
+    The two are one object: a count is a count *over* a keyspace, and comparing a
+    baseline against a different universe reports a change of subject as debt.
+    """
+
+    debt: "ByFile"
+    patterns: Optional[Tuple[str, ...]] = None
+    label_pattern: Optional[str] = None
+
+
+def _universe_mismatch(
+    frozen: Baseline, patterns: Sequence[str], label_pattern: Optional[str]
+) -> Optional[str]:
+    """Why this run is not comparable to the baseline, or None when it is."""
+    if frozen.patterns is not None and tuple(sorted(set(patterns))) != frozen.patterns:
+        return "the baseline was frozen over `%s`; this run measures `%s`" % (
+            "`, `".join(frozen.patterns),
+            "`, `".join(patterns),
+        )
+    if frozen.label_pattern != label_pattern:
+        if frozen.label_pattern is None:
+            return "the baseline was frozen with no --label-pattern; this run sets aside `%s`" % (
+                label_pattern,
+            )
+        if label_pattern is None:
+            return "the baseline was frozen with --label-pattern `%s`; this run declares none" % (
+                frozen.label_pattern,
+            )
+        return "the baseline was frozen with --label-pattern `%s`; this run declares `%s`" % (
+            frozen.label_pattern,
+            label_pattern,
+        )
+    return None
+
+
+def _load_baseline(path: pathlib.Path) -> Tuple[Baseline, Optional[str]]:
     if not path.is_file():
-        return {}, None
+        return Baseline({}), None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        return {}, "unreadable baseline: %s" % error
+        return Baseline({}), "unreadable baseline: %s" % error
     debt = data.get("debt")
     if not isinstance(debt, dict):
-        return {}, "baseline without a `debt` object"
+        return Baseline({}), "baseline without a `debt` object"
     clean: ByFile = {}
     for name, counts in debt.items():
         if not isinstance(counts, dict):
-            return {}, "baseline entry that is not an object: %s" % name
+            return Baseline({}), "baseline entry that is not an object: %s" % name
         clean[str(name)] = {kind: int(counts.get(kind, 0) or 0) for kind in scanner.CLASSES}
-    return clean, None
+    label = data.get("label_pattern")
+    return (
+        Baseline(clean, _as_patterns(data.get("pattern")), label if isinstance(label, str) else None),
+        None,
+    )
 
 
 def _measured_by_file(cols: Sequence[scanner.Collision]) -> ByFile:
@@ -214,9 +266,14 @@ def _debt_of(measured: ByFile) -> ByFile:
 
 
 def _write_baseline(
-    path: pathlib.Path, pattern: Union[str, List[str]], measured: ByFile
+    path: pathlib.Path,
+    pattern: Union[str, List[str]],
+    measured: ByFile,
+    label_pattern: Optional[str] = None,
 ) -> None:
     payload = {"version": BASELINE_VERSION, "pattern": pattern, "debt": _debt_of(measured)}
+    if label_pattern:
+        payload["label_pattern"] = label_pattern
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -350,7 +407,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.write_baseline:
         _write_baseline(
-            baseline_path, patterns[0] if len(patterns) == 1 else list(patterns), measured
+            baseline_path,
+            patterns[0] if len(patterns) == 1 else list(patterns),
+            measured,
+            args.label_pattern,
         )
         shadows = totals[scanner.SHADOW]
         if args.json:
@@ -395,8 +455,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if error:
         print("RC 2: %s" % error, file=sys.stderr)
         return 2
+    if baseline_present:
+        mismatch = _universe_mismatch(baseline, patterns, args.label_pattern)
+        if mismatch:
+            print(
+                "RC 2: not comparable: %s. The baseline records the universe it was frozen"
+                " over, and comparing across two universes reports a change of subject as"
+                " debt; re-freeze with --write-baseline, or run the declared universe"
+                % mismatch,
+                file=sys.stderr,
+            )
+            return 2
 
-    ups, zombies = _compare(measured, baseline, [u.path for u in unreadable])
+    ups, zombies = _compare(measured, baseline.debt, [u.path for u in unreadable])
     rc = 1 if (ups or zombies or totals[scanner.SHADOW]) else 0
     if args.strict and totals[scanner.SHARED]:
         rc = 1

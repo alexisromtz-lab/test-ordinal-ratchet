@@ -50,7 +50,7 @@ $ uvx --from git+https://github.com/alexisromtz-lab/test-ordinal-ratchet test-or
 |---|---|
 | `0` | nothing increased over the declared baseline (which may be zero) |
 | `1` | a **new** collision, a counter above the baseline, or declared debt that no longer exists |
-| `2` | invalid usage · **no** test file matched · nothing at all parses · `--strict-syntax` and a file does not parse |
+| `2` | invalid usage · **no** test file matched · nothing at all parses · `--strict-syntax` and a file does not parse · the run's universe is not the one the baseline was frozen over |
 
 `RC 2` exists so that absence of subject is never read as zero: if the glob finds nothing, there is no
 measurement and the tool refuses to say "clean".
@@ -311,12 +311,28 @@ cloning and moving:
 ```json
 {
   "version": 1,
-  "pattern": "test_*.py",
+  "pattern": ["test_*.py"],
+  "label_pattern": "^test_[1-5]\\d\\d_",
   "debt": {
     "tests/test_startup_order.py": {"ordinal": 2}
   }
 }
 ```
+
+A count is a count *over* a keyspace, so the file records the universe it was frozen over: `pattern`
+(every glob the run read, always written) and `label_pattern` (written only when the run declared
+one). Reading a baseline over a different universe is not a regression, it is a change of subject —
+the same bytes re-read under another declaration — and it is refused rather than charged:
+
+```
+RC 2: not comparable: the baseline was frozen with --label-pattern `^test_[1-5]\d\d_`; this run declares none.
+```
+
+Measured before this check existed: freezing `pandas/tests/io` with a label pattern and reading it
+without one reported `UP sas/test_sas7bdat.py: ordinal +1` — **1 of 1 declared rows, 100 % of the
+debt attributed to the change of declaration**. Both directions are refused (a frozen declaration
+read without it, and a run that sets one where the baseline has none), and an old baseline with no
+`label_pattern` key still means "nothing declared", so existing files keep working.
 
 Only `ordinal` is ever written here. `shadow` is not debt: a file with a live shadow is `RC 1` with
 or without a baseline, and `--write-baseline` exits `1` naming the shadows it refused to freeze.
@@ -447,7 +463,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.2.4
+    rev: v0.2.5
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']
@@ -515,6 +531,8 @@ A full workflow is in `.github/workflows/ratchet.yml`.
   not a sequence, so the crossing is not charged — it is declared instead of being silent.
 - Baseline keys are argument-relative: scanning `../other/tests` and `tests` from different
   directories produces different keys. Freeze the baseline from the directory you will run from.
+  The globs and the label pattern **are** recorded, so reading across either is `RC 2`; the roots
+  are not, so two runs that reach the same file from different arguments still share a key.
   When two arguments would produce the same relative key (`a/tests/test_x.py` and
   `b/tests/test_x.py`), each key is prefixed with the argument it came from, so both files are
   measured; the same file reached twice is measured once. Keying on the relative path alone silently
