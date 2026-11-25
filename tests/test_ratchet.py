@@ -211,6 +211,47 @@ class TheRatchetBites(unittest.TestCase):
         rc, out = _run(self._argv())
         self.assertEqual(rc, 2, out)
 
+    def test_a_file_that_does_not_parse_does_not_blind_the_others(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_1(:\n")
+        _write(self.root, "tests/test_b.py", LAW_WITH_SHADOW)
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("tests/test_b.py", out)
+        self.assertIn("1 of 2 files did not parse", out)
+
+    def test_an_unparsed_file_keeps_its_debt_instead_of_freeing_it(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        _write(self.root, "tests/test_b.py", "def test_1_b():\n    pass\n")
+        _run(self._argv() + ["--write-baseline"])
+        _write(self.root, "tests/test_a.py", "def test_1(:\n")
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("ZOMBIE", out)
+        self.assertIn("1 of 2 files did not parse", out)
+
+    def test_strict_syntax_refuses_an_unparsed_file(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_1_a():\n    pass\n")
+        _write(self.root, "tests/test_b.py", "def test_1(:\n")
+        rc, out = _run(self._argv() + ["--strict-syntax"])
+        self.assertEqual(rc, 2, out)
+
+    def test_a_baseline_is_not_frozen_over_an_incomplete_universe(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_1_a():\n    pass\n")
+        _write(self.root, "tests/test_b.py", "def test_1(:\n")
+        rc, out = _run(self._argv() + ["--write-baseline"])
+        self.assertEqual(rc, 2, out)
+        self.assertFalse(self.baseline.exists())
+        self.assertIn("incomplete universe", out)
+
+    def test_json_declares_how_many_files_were_read(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_1_a():\n    pass\n")
+        _write(self.root, "tests/test_b.py", "def test_1(:\n")
+        rc, out = _run(self._argv() + ["--json"])
+        self.assertEqual(rc, 0, out)
+        data = json.loads(out)
+        self.assertEqual((data["files"], data["parsed"]), (2, 1))
+        self.assertEqual(list(data["unparsed"]), ["tests/test_b.py"])
+
     def test_json_carries_the_counts_and_the_rc(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)
         rc, out = _run(self._argv() + ["--json"])

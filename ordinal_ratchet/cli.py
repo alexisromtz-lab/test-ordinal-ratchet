@@ -5,8 +5,14 @@ Output contract:
   RC 0  nothing increased over the declared baseline (which may be zero)
   RC 1  a NEW collision, a counter above the baseline, or declared debt that no
         longer exists (zombie debt: it was resolved, remove it)
-  RC 2  invalid usage, no test file at all (absence of subject is not zero), or
-        a file that does not parse (what could not be read is not guessed)
+  RC 2  invalid usage, no test file at all (absence of subject is not zero),
+        nothing at all could be parsed, or a file does not parse under
+        --strict-syntax
+
+A file that does not parse is NOT a veto over the rest of the repository. It is
+reported as not measured: it cannot hide a collision (it is never counted as
+zero) and it cannot free declared debt (it is never reported as a zombie). An
+older interpreter then still audits the 99% of a modern suite it can read.
 
 The baseline is a JSON file holding the INHERITED debt. The ratchet turns one
 way: the declared count may go down, never up.
@@ -90,7 +96,14 @@ def _measured_by_file(cols: Sequence[scanner.Collision]) -> ByFile:
     return out
 
 
-def _compare(measured: ByFile, baseline: ByFile) -> Tuple[ByFile, ByFile]:
+def _compare(
+    measured: ByFile, baseline: ByFile, unreadable: Sequence[str] = ()
+) -> Tuple[ByFile, ByFile]:
+    """Charged increases and resolved debt. A file that would not parse is neither.
+
+    Its declared debt cannot be called resolved: it was never looked at.
+    """
+    blind = set(unreadable)
     ups: ByFile = {}
     zombies: ByFile = {}
     for path in sorted(set(measured) | set(baseline)):
@@ -99,7 +112,7 @@ def _compare(measured: ByFile, baseline: ByFile) -> Tuple[ByFile, ByFile]:
         for kind in scanner.RATCHETED:
             if now[kind] > declared[kind]:
                 ups.setdefault(path, {})[kind] = now[kind] - declared[kind]
-            elif declared[kind] > now[kind]:
+            elif declared[kind] > now[kind] and path not in blind:
                 zombies.setdefault(path, {})[kind] = declared[kind] - now[kind]
     return ups, zombies
 
@@ -153,6 +166,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="also fail when two scopes of one file reuse an ordinal",
     )
+    parser.add_argument(
+        "--strict-syntax",
+        action="store_true",
+        help="fail with RC 2 when any file does not parse (default: report it and read the rest)",
+    )
     args = parser.parse_args(argv)
 
     baseline_path = (
@@ -172,13 +190,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     cols, unreadable = scanner.scan(_read(files))
-    if unreadable:
+    parsed = len(files) - len(unreadable)
+    if not parsed:
         for path, reason in sorted(unreadable.items()):
             print("RC 2: cannot parse %s (%s)" % (path, reason), file=sys.stderr)
+        print("RC 2: none of the %d files parses: no subject, no zero" % len(files), file=sys.stderr)
+        return 2
+    if args.strict_syntax and unreadable:
+        for path, reason in sorted(unreadable.items()):
+            print("RC 2: cannot parse %s (%s)" % (path, reason), file=sys.stderr)
+        print(
+            "RC 2: --strict-syntax: %d of %d files unparsed" % (len(unreadable), len(files)),
+            file=sys.stderr,
+        )
         return 2
 
     measured = _measured_by_file(cols)
     totals = _summary(measured)
+
+    if args.write_baseline and unreadable:
+        print(
+            "RC 2: not freezing a baseline over an incomplete universe: %d of %d files"
+            " do not parse, so their debt would be undeclarable (%s)"
+            % (len(unreadable), len(files), ", ".join(sorted(unreadable))),
+            file=sys.stderr,
+        )
+        return 2
 
     if args.write_baseline:
         _write_baseline(baseline_path, args.pattern, measured)
@@ -214,7 +251,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("RC 2: %s" % error, file=sys.stderr)
         return 2
 
-    ups, zombies = _compare(measured, baseline)
+    ups, zombies = _compare(measured, baseline, sorted(unreadable))
     rc = 1 if (ups or zombies) else 0
     if args.strict and totals[scanner.SHARED]:
         rc = 1
@@ -224,6 +261,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             json.dumps(
                 {
                     "files": len(files),
+                    "parsed": parsed,
+                    "unparsed": unreadable,
                     "total": totals,
                     "collisions": [
                         {
@@ -250,9 +289,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return rc
 
     print(
-        "test-ordinal-ratchet: %d files · shadow %d · ordinal %d · shared %d"
-        % (len(files), totals[scanner.SHADOW], totals[scanner.ORDINAL], totals[scanner.SHARED])
+        "test-ordinal-ratchet: %s · shadow %d · ordinal %d · shared %d"
+        % (
+            "%d files" % len(files) if not unreadable else "%d of %d files" % (parsed, len(files)),
+            totals[scanner.SHADOW],
+            totals[scanner.ORDINAL],
+            totals[scanner.SHARED],
+        )
     )
+    if unreadable:
+        if args.detail:
+            for path, reason in sorted(unreadable.items()):
+                print("  NOT MEASURED %s (%s)" % (path, reason))
+        else:
+            print(
+                "  (%d of %d files did not parse: not measured, not counted as zero,"
+                " their declared debt is frozen in place; --detail lists them,"
+                " --strict-syntax refuses)" % (len(unreadable), len(files))
+            )
     hidden_ordinal = 0
     hidden_shared = 0
     for c in cols:
@@ -298,7 +352,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             causes.append("%d shared ordinals charged by --strict" % totals[scanner.SHARED])
         print("RC 1: " + " · ".join(causes))
     else:
-        print("RC 0: no new collisions over %s" % baseline_path.as_posix())
+        print(
+            "RC 0: no new collisions over %s, on %d of %d files read"
+            % (baseline_path.as_posix(), parsed, len(files))
+        )
     return rc
 
 
