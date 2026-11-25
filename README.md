@@ -638,3 +638,11 @@ the wheel.
 ## License
 
 MIT — see `LICENSE`.
+
+## Field notes
+
+This repository belongs to an audit corpus whose measurements are published as
+field notes. Two of them come from the same work:
+
+- [Encontré 2 bugs reales en Django y decidí no reportarlos. La razón es más interesante que el bug.](https://dev.to/alexisromtz7/encontre-2-bugs-reales-en-django-y-decidi-no-reportarlos-la-razon-es-mas-interesante-que-el-bug-3b7n)
+- [My falsifier was measuring my laptop](https://dev.to/alexisromtz7/my-falsifier-was-measuring-my-laptop-499p)
