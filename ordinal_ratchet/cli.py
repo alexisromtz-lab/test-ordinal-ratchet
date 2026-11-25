@@ -272,6 +272,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.write_baseline:
         _write_baseline(baseline_path, args.pattern, measured)
+        shadows = totals[scanner.SHADOW]
         if args.json:
             print(
                 json.dumps(
@@ -279,7 +280,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         "baseline": baseline_path.as_posix(),
                         "debt": _debt_of(measured),
                         "total": totals,
-                        "rc": 0,
+                        "rc": 1 if shadows else 0,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -292,7 +293,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 % (
                     baseline_path.as_posix(),
                     len(_debt_of(measured)),
-                    totals[scanner.SHADOW],
+                    shadows,
                     totals[scanner.ORDINAL],
                 )
             )
@@ -301,6 +302,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "  (%d test names were not read as ordinals: --label-pattern `%s`)"
                     % (len(labels), args.label_pattern)
                 )
+        if shadows:
+            print(
+                "RC 1: %d shadows left out of the baseline (a shadow is overwritten code,"
+                " not debt to ratchet)" % shadows
+            )
+            return 1
         return 0
 
     baseline_present = baseline_path.is_file()
@@ -310,7 +317,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     ups, zombies = _compare(measured, baseline, [u.path for u in unreadable])
-    rc = 1 if (ups or zombies) else 0
+    rc = 1 if (ups or zombies or totals[scanner.SHADOW]) else 0
     if args.strict and totals[scanner.SHARED]:
         rc = 1
 
@@ -415,6 +422,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     if rc:
         causes = []
+        if totals[scanner.SHADOW]:
+            causes.append(
+                "%d shadows (a test that never runs: no baseline can absorb them)"
+                % totals[scanner.SHADOW]
+            )
         if ups and not baseline_present:
             causes.append("no baseline to ratchet against")
         elif ups:

@@ -76,6 +76,11 @@ Two consequences of the same rule:
 `--strict-syntax` restores the all-or-nothing refusal, and `--write-baseline` refuses to freeze an
 incomplete universe instead of locking in debt it could not declare.
 
+The floor is the interpreter, so the ceiling is published: `sqlalchemy` read on the same tree
+(241 files, 2026-11-25) leaves **4 unread under 3.9.6**, **2 under 3.12.13** — the two PEP 750
+t-string files — and **0 under 3.14.8**, with `shadow 0 · ordinal 0 · shared 0` either way. Nothing
+was hidden behind a grammar gate; the gate was only ever a version of `ast`.
+
 The loss is also named, per file, with the line that stopped the parser:
 
 ```console
@@ -132,7 +137,10 @@ ordinals, so no pattern separates them; freeze them in the baseline, which is wh
 for. The flag keeps the *new* ones from being charged as regressions.
 
 `shadow` is exempt by construction: two identical names in one scope are two identical names,
-whatever the pattern claims, and that is tested.
+whatever the pattern claims, and that is tested. A **baseline cannot absorb a shadow** either:
+`--write-baseline` leaves it out of the file and still exits `RC 1`, because a shadow is code that
+no longer runs, not debt to be paid down. Measured on the real hook (`pre-commit try-repo`, clean
+tree vs. one shadow) — see [pre-commit](#pre-commit).
 
 By default only the rows that justify the RC are printed, plus one line with the totals. That is
 deliberate: a legacy suite can carry dozens of legal `shared` ordinals, and printing them on every
@@ -180,10 +188,13 @@ cloning and moving:
   "version": 1,
   "pattern": "test_*.py",
   "debt": {
-    "tests/test_startup_order.py": {"ordinal": 2, "shadow": 0}
+    "tests/test_startup_order.py": {"ordinal": 2}
   }
 }
 ```
+
+Only `ordinal` is ever written here. `shadow` is not debt: a file with a live shadow is `RC 1` with
+or without a baseline, and `--write-baseline` exits `1` naming the shadows it refused to freeze.
 
 The ratchet turns one way: the declared count **may go down, never up**. And it charges the opposite
 error too — a declared entry that no longer exists is a `zombie`, `RC 1`:
@@ -307,7 +318,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.2.0
+    rev: v0.2.1
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']
@@ -317,6 +328,17 @@ repos:
 which shrinks the universe: the ratchet compares a partial read against a whole-repository baseline
 and reports resolved debt that was never looked at. The subject of this tool is the repository, so
 the hook triggers on a Python change and then reads everything.
+
+Measured, not assumed — `pre-commit try-repo /path/to/test-ordinal-ratchet` on a scratch repository:
+
+| tree | command | result |
+|---|---|---|
+| two files, no collision | `--all-files` | `Passed`, `RC 0` |
+| one shadow in `tests/test_clean.py` | `--all-files` | `Failed`, `RC 1`, names `:11` overwriting `:8` |
+| same shadow, hook handed a **clean** file | `--files tests/test_other.py` | `Failed`, `RC 1` — the argument is ignored, the whole tree is read |
+
+The third row is the one that matters: it is the falsifier for `pass_filenames: false`. With
+`pass_filenames: true` that run would have passed and shipped the shadow.
 
 Keep the flag — and the declared labels — in the configuration that runs the check. The declaration
 is part of the measurement: the same tree read with and without `--label-pattern` does not produce

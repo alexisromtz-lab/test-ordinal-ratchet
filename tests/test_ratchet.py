@@ -371,6 +371,30 @@ class TheRatchetBites(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("overwrites the definition at", out)
 
+    def test_a_baseline_never_absorbs_a_shadow(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHADOW)
+        rc, out = _run(self._argv() + ["--write-baseline"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("left out of the baseline", out)
+        self.assertNotIn("shadow", json.loads(self.baseline.read_text("utf-8"))["debt"].get(
+            "tests/test_a.py", {}))
+
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no baseline can absorb them", out)
+        self.assertIn("overwrites the definition at", out)
+
+    def test_shadow_debt_typed_into_the_baseline_by_hand_is_not_inherited(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHADOW)
+        self.baseline.write_text(
+            json.dumps({"version": 1, "pattern": "test_*.py",
+                        "debt": {"tests/test_a.py": {"shadow": 1, "ordinal": 0}}}),
+            encoding="utf-8",
+        )
+        rc, out = _run(self._argv())
+        self.assertEqual(rc, 1, out)
+        self.assertIn("1 shadows", out)
+
     def test_a_malformed_label_pattern_is_rc_2(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_HTTP_CODE_LABELS)
         rc, out = _run(self._argv() + ["--label-pattern", "test_("])

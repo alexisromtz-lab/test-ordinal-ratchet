@@ -35,10 +35,12 @@ SHADOW = "shadow"
 ORDINAL = "ordinal"
 SHARED = "shared"
 
-#: Only these are charged by the ratchet. `shared` is counted and published but
-#: never fails by default: two classes of one file may reuse an ordinal without
-#: a single test stopping to run.
-RATCHETED = (SHADOW, ORDINAL)
+#: Only these can be frozen into the baseline. `shared` is counted and published
+#: but never fails by default: two classes of one file may reuse an ordinal
+#: without a single test stopping to run. `shadow` is never here: it is a test
+#: that no longer runs, so a baseline that could hold it would turn the guard
+#: into decoration on the first `--write-baseline`.
+RATCHETED = (ORDINAL,)
 CLASSES = (SHADOW, ORDINAL, SHARED)
 
 
