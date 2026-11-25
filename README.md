@@ -108,7 +108,7 @@ A debt list nobody prunes stops being evidence. That is why shrinking is legal b
 
 ## Real-world audit
 
-Five well-known suites, shallow clone of the default branch, 2026-11-25, Python 3.9.6:
+Five well-known suites, shallow clone of the default branch, 2026-11-25, Python 3.12.13:
 
 | repository | test files | shadow | ordinal | shared | RC |
 |---|---|---|---|---|---|
@@ -116,7 +116,12 @@ Five well-known suites, shallow clone of the default branch, 2026-11-25, Python 
 | `encode/httpx` | 31 | 0 | 0 | 0 | 0 |
 | `pytest-dev/pytest` | 118 | 0 | 0 | 0 | 0 |
 | `Textualize/rich` | 63 | **2** | 0 | 0 | 1 |
-| `pydantic/pydantic` | — | — | — | — | 2 |
+| `pydantic/pydantic` | 260 | 0 | 0 | 0 | 0 |
+
+481 files, two silent lost tests, and the two of them are in the same file of the same project.
+`pydantic` is also the honest footnote: under Python 3.9 the same scan exited `RC 2` because its
+suites use `match` (3.10+), and `RC 2` means *no measurement*, not *clean*. Re-measured on 3.12 the
+answer was zero over 260 files. Refusing cost a measurement; reporting zero would have cost truth.
 
 `rich` is the interesting one. `tests/test_console.py` defines two module-level functions twice:
 
@@ -145,9 +150,8 @@ test_proof.py::test_force_color
 
 One test collected out of four. `git` sees nothing; CI stays green.
 
-`pydantic` exits `RC 2` because its suites use `match` statements (3.10+) and the interpreter running
-the scan was 3.9: the tool refuses to report as "clean" what it could not parse. Run it under the
-interpreter your project targets.
+The interpreter matters: point the tool at the interpreter the project targets. Under 3.9 the
+`pydantic` row above is a refusal, not a zero.
 
 ## GitHub Actions
 
