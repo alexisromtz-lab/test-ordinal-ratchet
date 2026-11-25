@@ -32,10 +32,17 @@ Without installing anything:
 
 ```console
 $ python -m ordinal_ratchet tests
+test-ordinal-ratchet: 1 file · shadow 0 · ordinal 0 · shared 0
+RC 0: no new collisions over .ordinal-ratchet.json, on 1 of 1 file read
 ```
 
-(Not on PyPI yet, so `uvx test-ordinal-ratchet` does not resolve. `pip install .` and
-`python -m ordinal_ratchet` work today.)
+Not on PyPI yet, so `uvx test-ordinal-ratchet` does not resolve — but the repository does, and the
+console script is reachable by its own name (verified against `v0.1.1` on 2026-11-25: it builds and
+prints the same report):
+
+```console
+$ uvx --from git+https://github.com/alexisromtz-lab/test-ordinal-ratchet test-ordinal-ratchet tests
+```
 
 ## Output contract
 
@@ -223,12 +230,32 @@ a declared label space:
 | `scikit-learn/scikit-learn` | 260 | 0 | 7 | 0 |
 | **total** | **5 269** | **0** | **27** | **4** |
 
-**7 682 files**, two silent lost tests, both in the same file of the same project. The `ordinal`
-column is where the honest problems are: of the **27** rows the heuristic charges across those five
-large suites, 23 have a shape a declared pattern can name, **1** is a genuinely reused ordinal
-(`airflow`'s `test_7_…` at `:849` and `:890`), and **3** are numbers that look exactly like sequence
-ordinals and are not — `pandas`' `test_20643_comment`, `test_32878_complex_itemsize` and
+**7 782 distinct files** over **23 repositories** — 8 605 reads, because four suites were scanned
+twice — and two silent lost tests, both in the same file of the same project. Across the whole sweep
+the heuristic charges **31** `ordinal` rows: **27** have a shape a declared pattern can name (23 in
+the five large suites plus `aiohttp`'s four), **1** is a genuinely reused ordinal (`airflow`'s
+`test_7_…` at `:849` and `:890`), and **3** are numbers that look exactly like sequence ordinals and
+are not — `pandas`' `test_20643_comment`, `test_32878_complex_itemsize` and
 `test_1000_sep_not_stripped_after_whitespace`.
+
+Five async-heavy suites, scanned at the **repository root** — `fastapi`, `typer`, `httpx` and
+`starlette` also appear above, there scanned at `tests/`, which is 21 files less — because
+`async def test_x` is an `ast.AsyncFunctionDef`, a different node type from `ast.FunctionDef`:
+
+| repository | test files | `async def` tests | shadow | ordinal (raw) | ordinal (labels declared) |
+|---|---|---|---|---|---|
+| `aiohttp/aiohttp` | 79 | 2 156 | 0 | 4 | **0** |
+| `fastapi/fastapi` | 567 | 78 | 0 | 0 | 0 |
+| `fastapi/typer` | 215 | 0 | 0 | 0 | 0 |
+| `encode/httpx` | 31 | 114 | 0 | 0 | 0 |
+| `encode/starlette` | 31 | 56 | 0 | 0 | 0 |
+| **total** | **923** | **2 404** | **0** | **4** | **0** |
+
+Async definitions collide exactly like plain ones — same name in the same class is a `shadow`, same
+number in the same scope is an `ordinal`, whether the other side is `def` or `async def` — and the
+suite pins it so it cannot regress into a silent zero. `aiohttp`'s four raw rows are all one HTTP
+label again (`test_100_continue_*`: the `100 Continue` status), taken out by
+`--label-pattern '^test_[1-5]\d\d_'`, which sets aside nine names in that file.
 
 `sqlalchemy` is the row that justifies the unparseable-file granularity: four of its files do not
 parse because they use syntax newer than the interpreter (`test_tstring_py314.py` is Python 3.14
@@ -280,7 +307,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.1.1
+    rev: v0.2.0
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']
@@ -321,9 +348,19 @@ A full workflow is in `.github/workflows/ratchet.yml`.
   repositories above, 2 437 `test_*.py` and `conftest.py` files hold **zero** cases of two same-named
   definitions in one scope where at least one is a `@pytest.fixture`. Overriding a fixture from
   `conftest.py` inside a module is legal and would be a false positive, not a defect.
+- **A definition inside a control-flow block is not read.** `if`/`try`/`for`/`while`/`with` bodies are
+  skipped, and so is anything nested inside a function body, so a test that exists only under a
+  condition is invisible here rather than guessed at. This was measured before being formalized:
+  **0 of 14 022** `test*` definitions at module or class level — 5 378 in the 320-file corpus, 8 644
+  across the five latest repositories — live inside such a block. If yours does, the guard belongs at
+  the branch, not in the name.
 - `shadow` reports the **last** binding and the line of the first one it overwrites.
 - Baseline keys are argument-relative: scanning `../other/tests` and `tests` from different
   directories produces different keys. Freeze the baseline from the directory you will run from.
+  When two arguments would produce the same relative key (`a/tests/test_x.py` and
+  `b/tests/test_x.py`), each key is prefixed with the argument it came from, so both files are
+  measured; the same file reached twice is measured once. Keying on the relative path alone silently
+  dropped the second file — collisions included.
 
 ## License
 

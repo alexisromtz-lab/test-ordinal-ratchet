@@ -31,6 +31,7 @@ the header. `--detail` lists every row, `--json` emits all of them.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import pathlib
 import re
@@ -51,22 +52,40 @@ def _collect(paths: Sequence[str], pattern: str) -> Tuple[List[Tuple[str, pathli
 
     An absolute key would tie the baseline to the machine where it was frozen,
     and the inherited debt would stop being readable after a clone.
+
+    One file reached twice is one file, and it is deduplicated by its resolved
+    path. Two DIFFERENT files that merely share a relative key (`a/tests/
+    test_x.py` and `b/tests/test_x.py`, reached through two arguments) are two
+    files, and both are measured: the key of each is prefixed with the argument
+    it came from, so the baseline stays portable and no file is dropped in
+    silence. Keying by the relative path alone made the second file invisible,
+    collisions included.
     """
-    files: List[Tuple[str, pathlib.Path]] = []
+    found: List[Tuple[str, str, pathlib.Path]] = []
     missing: List[str] = []
     for raw in paths:
         entry = pathlib.Path(raw)
         if entry.is_dir():
-            for found in sorted(entry.rglob(pattern)):
-                files.append((found.relative_to(entry).as_posix(), found))
+            for path in sorted(entry.rglob(pattern)):
+                found.append((raw, path.relative_to(entry).as_posix(), path))
         elif entry.is_file():
-            files.append((entry.name, entry))
+            found.append((raw, entry.name, entry))
         else:
             missing.append(raw)
-    unique: Dict[str, pathlib.Path] = {}
-    for key, path in files:
-        unique.setdefault(key, path)
-    return sorted(unique.items()), missing
+
+    unique: Dict[pathlib.Path, Tuple[str, str, pathlib.Path]] = {}
+    for row in found:
+        unique.setdefault(row[2].resolve(), row)
+    rows = list(unique.values())
+
+    counts = collections.Counter(key for _, key, _ in rows)
+    disputed = {key for key, times in counts.items() if times > 1}
+    files: List[Tuple[str, pathlib.Path]] = []
+    for argument, key, path in rows:
+        if key in disputed:
+            key = pathlib.Path(argument).as_posix().rstrip("/") + "/" + key
+        files.append((key, path))
+    return sorted(files), missing
 
 
 def _read(files: Sequence[Tuple[str, pathlib.Path]]) -> Dict[str, str]:
@@ -143,6 +162,10 @@ def _write_baseline(path: pathlib.Path, pattern: str, measured: ByFile) -> None:
 
 def _summary(measured: ByFile) -> Counts:
     return {kind: sum(c.get(kind, 0) for c in measured.values()) for kind in scanner.CLASSES}
+
+
+def _files(n: int) -> str:
+    return "1 file" if n == 1 else "%d files" % n
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -331,7 +354,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(
         "test-ordinal-ratchet: %s · shadow %d · ordinal %d · shared %d"
         % (
-            "%d files" % len(files) if not unreadable else "%d of %d files" % (parsed, len(files)),
+            _files(len(files)) if not unreadable else "%d of %s" % (parsed, _files(len(files))),
             totals[scanner.SHADOW],
             totals[scanner.ORDINAL],
             totals[scanner.SHARED],
@@ -403,8 +426,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("RC 1: " + " · ".join(causes))
     else:
         print(
-            "RC 0: no new collisions over %s, on %d of %d files read"
-            % (baseline_path.as_posix(), parsed, len(files))
+            "RC 0: no new collisions over %s, on %d of %s read"
+            % (baseline_path.as_posix(), parsed, _files(len(files)))
         )
     return rc
 

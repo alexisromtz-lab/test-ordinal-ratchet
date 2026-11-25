@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -71,6 +72,34 @@ class TestDebug:
         pass
 
     def test_404_missing(self):
+        pass
+"""
+
+# `async def test_x` parses to ast.AsyncFunctionDef, a different node type from
+# ast.FunctionDef. It is the same kind of definition: measured over five
+# async-heavy suites, 2 404 of 8 660 test definitions are `async def`.
+LAW_WITH_ASYNC_COLLISIONS = """
+async def test_7_streams():
+    pass
+
+
+async def test_7_streams_again():
+    pass
+
+
+def test_3_sync():
+    pass
+
+
+async def test_3_async():
+    pass
+
+
+class TestClient:
+    async def test_9_connect(self):
+        pass
+
+    async def test_9_connect(self):
         pass
 """
 
@@ -154,6 +183,28 @@ def test_1_real():
         defs = scanner.definitions(LAW_WITH_SHADOW_INSIDE_LABELS, "law.py")
         cols = scanner.collisions(defs, re.compile(r"^test_[1-5]\d\d_"))
         self.assertEqual([c.kind for c in cols], [scanner.SHADOW])
+
+    def test_an_async_definition_collides_like_a_plain_one(self) -> None:
+        defs = scanner.definitions(LAW_WITH_ASYNC_COLLISIONS, "law.py")
+        self.assertEqual(len(defs), 6)
+        cols = scanner.collisions(defs)
+        self.assertEqual(
+            sorted((c.kind, c.name) for c in cols),
+            [
+                (scanner.ORDINAL, "test_3_async"),
+                (scanner.ORDINAL, "test_7_streams_again"),
+                (scanner.SHADOW, "test_9_connect"),
+            ],
+        )
+        self.assertEqual(sorted({c.scope for c in cols}), ["TestClient", "module"])
+
+    def test_an_async_shadow_is_rc_1_and_names_the_line_it_overwrites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write(root, "tests/test_a.py", LAW_WITH_ASYNC_COLLISIONS)
+            rc, out = _run([str(root), "--baseline", str(root / ".ordinal-ratchet.json")])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("TestClient.test_9_connect overwrites the definition at :", out)
 
 
 class TheRatchetBites(unittest.TestCase):
@@ -334,6 +385,38 @@ class TheRatchetBites(unittest.TestCase):
         self.assertEqual(data["total"], {"shadow": 0, "ordinal": 0, "shared": 1})
         self.assertEqual(data["rc"], 0)
         self.assertEqual(data["collisions"][0]["name"], "ordinal 36 in 2 scopes")
+
+    def test_two_roots_sharing_a_relative_key_are_both_measured(self) -> None:
+        _write(self.root, "a/tests/test_x.py", "def test_1_x():\n    pass\n")
+        _write(self.root, "b/tests/test_x.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        here = os.getcwd()
+        os.chdir(self.root)
+        try:
+            files, missing = cli._collect(["a/tests", "b/tests"], "test_*.py")
+        finally:
+            os.chdir(here)
+        self.assertEqual(missing, [])
+        self.assertEqual([key for key, _ in files], ["a/tests/test_x.py", "b/tests/test_x.py"])
+
+    def test_the_second_root_is_charged_instead_of_disappearing(self) -> None:
+        _write(self.root, "a/tests/test_x.py", "def test_1_x():\n    pass\n")
+        _write(self.root, "b/tests/test_x.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        roots = [str(self.root / "a" / "tests"), str(self.root / "b" / "tests")]
+        rc, out = _run(roots + ["--baseline", str(self.baseline), "--json"])
+        self.assertEqual(rc, 1, out)
+        data = json.loads(out)
+        self.assertEqual(data["files"], 2)
+        self.assertEqual(data["total"]["ordinal"], 1)
+
+    def test_the_same_file_reached_twice_is_measured_once(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        here = os.getcwd()
+        os.chdir(self.root)
+        try:
+            files, _missing = cli._collect(["tests", "./tests", "tests/test_a.py"], "test_*.py")
+        finally:
+            os.chdir(here)
+        self.assertEqual([key for key, _ in files], ["test_a.py"])
 
 
 if __name__ == "__main__":
