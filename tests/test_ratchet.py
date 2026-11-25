@@ -159,6 +159,13 @@ def test_1_real():
 '''
         self.assertEqual(scanner.collisions(scanner.definitions(source, "law.py")), [])
 
+    def test_a_test_prefixed_name_without_underscore_is_still_a_shadow(self) -> None:
+        # pytest collects `test*`, not `test_*`: `testcase` twice is one test that
+        # stops running, while RE_ORDINAL never sees it because it carries no number.
+        source = "\ndef testcase():\n    pass\n\n\ndef testcase():\n    pass\n"
+        cols = scanner.collisions(scanner.definitions(source, "law.py"))
+        self.assertEqual([(c.kind, c.name) for c in cols], [(scanner.SHADOW, "testcase")])
+
     def test_shadow_and_ordinal_are_not_counted_twice_over_the_same_pair(self) -> None:
         tally = scanner.count(scanner.collisions(scanner.definitions(LAW_WITH_SHADOW, "law.py")))
         self.assertEqual(tally, {"shadow": 1, "ordinal": 0, "shared": 0})
@@ -184,10 +191,21 @@ def test_1_real():
             [3, 6],
         )
 
+    def test_set_aside_definitions_are_ordered_by_locus_not_by_name(self) -> None:
+        source = "\ndef test_9_zulu():\n    pass\n\n\ndef test_1_alpha():\n    pass\n"
+        aside = scanner.labels_set_aside(scanner.definitions(source, "law.py"), re.compile(r"^test_\d+_"))
+        self.assertEqual([d.name for d in aside], ["test_9_zulu", "test_1_alpha"])
+        self.assertEqual([d.line for d in aside], [2, 6])
+
     def test_a_label_pattern_never_reaches_the_shadow_pass(self) -> None:
         defs = scanner.definitions(LAW_WITH_SHADOW_INSIDE_LABELS, "law.py")
         cols = scanner.collisions(defs, re.compile(r"^test_[1-5]\d\d_"))
         self.assertEqual([c.kind for c in cols], [scanner.SHADOW])
+
+    def test_two_set_aside_names_in_one_file_are_two_terms(self) -> None:
+        source = "def test_1a():\n    pass\n\ndef test_2b():\n    pass\n\ndef test_3_c():\n    pass\n"
+        census = scanner.label_census(scanner.definitions(source, "law.py"), re.compile(r"^test_\d+[a-z]"))
+        self.assertEqual([(f.path, f.set_aside, f.read) for f in census], [("law.py", 2, 1)])
 
     def test_an_async_definition_collides_like_a_plain_one(self) -> None:
         defs = scanner.definitions(LAW_WITH_ASYNC_COLLISIONS, "law.py")
@@ -315,6 +333,42 @@ class TheRatchetBites(unittest.TestCase):
         _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_", "--write-baseline"])
         rc, out = _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_"])
         self.assertEqual(rc, 0, out)
+
+    def test_a_baseline_frozen_over_two_globs_is_read_in_any_order(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)
+        rc, out = _run(self._argv() + ["--pattern", "test_*.py", "--pattern", "*_test.py", "--write-baseline"])
+        self.assertEqual(rc, 0, out)
+        rc, out = _run(self._argv() + ["--pattern", "*_test.py", "--pattern", "test_*.py"])
+        self.assertEqual(rc, 0, out)
+
+    def test_a_shared_ordinal_is_never_frozen_into_the_baseline(self) -> None:
+        # A file that carries both kinds of debt is where the filter can leak: the
+        # frozen row must hold the ratcheted term alone, never a count nothing charges.
+        source = (
+            "class Codes:\n"
+            "    def test_3_a(self):\n"
+            "        pass\n\n"
+            "    def test_3_b(self):\n"
+            "        pass\n\n\n"
+            "class Other:\n"
+            "    def test_7_x(self):\n"
+            "        pass\n\n\n"
+            "class Third:\n"
+            "    def test_7_y(self):\n"
+            "        pass\n"
+        )
+        _write(self.root, "tests/test_a.py", source)
+        rc, out = _run(self._argv() + ["--write-baseline"])
+        self.assertEqual(rc, 0, out)
+        payload = json.loads(self.baseline.read_text(encoding="utf-8"))
+        self.assertEqual(payload["debt"], {"tests/test_a.py": {"ordinal": 1}})
+
+    def test_a_file_with_no_ratcheted_debt_is_not_written_at_all(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)
+        rc, out = _run(self._argv() + ["--write-baseline"])
+        self.assertEqual(rc, 0, out)
+        payload = json.loads(self.baseline.read_text(encoding="utf-8"))
+        self.assertEqual(payload["debt"], {})
 
     def test_a_baseline_frozen_over_one_glob_refuses_to_be_read_over_another(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_ORDINAL_IN_ONE_SCOPE)

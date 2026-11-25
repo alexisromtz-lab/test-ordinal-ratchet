@@ -498,6 +498,46 @@ the same counts, and the run without it is the loud one.
 
 A full workflow is in `.github/workflows/ratchet.yml`.
 
+## How this is tested
+
+53 tests, and a mutation audit of the tests themselves. A passing test says the code does what the
+test asserts; it does not say the test would notice if the code stopped doing it, and a guard whose
+removal no test notices is not a guard — it is a comment with a colour.
+
+```bash
+python tools/mutar.py
+```
+
+The harness holds **26 mutations**, each hoisting one promise out of `scanner.py` or `cli.py`: the
+ordinal needs its underscore, `async def` is read, a class body is read, a repeated name in one scope
+is a shadow, the label declaration is honoured in the ordinal pass, a frozen glob **and** a frozen
+label pattern are both checked on read, a shadow can never be frozen into the baseline, two homonym
+roots keep two keys. Every anchor must appear exactly once before anything is written; the package
+and its tests are copied into a temporary directory and the suite runs there, so nothing touches the
+checkout.
+
+| RC | meaning |
+| -- | -- |
+| `0` | every mutation was killed |
+| `1` | at least one survived — it names the promise that has no falsifier |
+| `2` | the harness cannot measure: an anchor is missing or is not unique |
+
+The first run left **8** of 26 alive: 4 were the harness's own anchors landing on a missing or
+duplicated line, and **4 were real holes** — a `testcase` name (pytest collects `test*`, not
+`test_*`) was never read as a definition, the set-aside list was ordered by name instead of by
+locus, two set-aside names in one file collapsed into one term, and a baseline frozen over two globs
+was tied to the order they were declared in. Repairing the anchors then exposed two more: one mutant
+only rewrote an error message instead of the `rc = 1` that emits it, and one file carrying both a
+ratcheted and an unratcheted count leaked the unratcheted one into the frozen baseline. One
+falsifier per hole, and one strengthened to a file that carries both kinds of debt:
+
+```
+26 mutations · 26 killed · 0 survived
+```
+
+`tools/` is not part of the installed package: this is the audit of the repository, not a feature of
+the wheel.
+
 ## Declared limits
 
 - It **does not execute** anything: it reads definitions from the AST.
