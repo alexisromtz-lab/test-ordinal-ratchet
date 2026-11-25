@@ -14,6 +14,13 @@ reported as not measured: it cannot hide a collision (it is never counted as
 zero) and it cannot free declared debt (it is never reported as a zombie). An
 older interpreter then still audits the 99% of a modern suite it can read.
 
+The same rule governs labels. `test_1d_margins` carries a dimension and
+`test_08b_case` carries the sub-case b of ordinal 8; the two are
+syntactically identical, so which numbers are labels is DECLARED by the
+repository (`--label-pattern`) and never guessed. Rows kept out this way are
+counted and printable, and `shadow` is exempt: two identical names are two
+identical names whatever the pattern claims.
+
 The baseline is a JSON file holding the INHERITED debt. The ratchet turns one
 way: the declared count may go down, never up.
 
@@ -26,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -171,7 +179,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="fail with RC 2 when any file does not parse (default: report it and read the rest)",
     )
+    parser.add_argument(
+        "--label-pattern",
+        default=None,
+        metavar="REGEX",
+        help="tests whose NAME matches are not read as sequence ordinals (a dimension, a "
+        "dataset or an issue number: `^test_\\d+[a-zA-Z]`, `^test_[1-5]\\d\\d_`). Never affects shadow",
+    )
     args = parser.parse_args(argv)
+
+    label = None
+    if args.label_pattern:
+        try:
+            label = re.compile(args.label_pattern)
+        except re.error as error:
+            print(
+                "RC 2: --label-pattern is not a regex (%s): %s" % (args.label_pattern, error),
+                file=sys.stderr,
+            )
+            return 2
 
     baseline_path = (
         pathlib.Path(args.baseline) if args.baseline else pathlib.Path(DEFAULT_BASELINE)
@@ -189,16 +215,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return 2
 
-    cols, unreadable = scanner.scan(_read(files))
+    cols, unreadable, labels = scanner.scan(_read(files), label)
     parsed = len(files) - len(unreadable)
     if not parsed:
-        for path, reason in sorted(unreadable.items()):
-            print("RC 2: cannot parse %s (%s)" % (path, reason), file=sys.stderr)
+        for u in unreadable:
+            print("RC 2: cannot parse %s" % u.report_line(), file=sys.stderr)
         print("RC 2: none of the %d files parses: no subject, no zero" % len(files), file=sys.stderr)
         return 2
     if args.strict_syntax and unreadable:
-        for path, reason in sorted(unreadable.items()):
-            print("RC 2: cannot parse %s (%s)" % (path, reason), file=sys.stderr)
+        for u in unreadable:
+            print("RC 2: cannot parse %s" % u.report_line(), file=sys.stderr)
         print(
             "RC 2: --strict-syntax: %d of %d files unparsed" % (len(unreadable), len(files)),
             file=sys.stderr,
@@ -212,7 +238,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(
             "RC 2: not freezing a baseline over an incomplete universe: %d of %d files"
             " do not parse, so their debt would be undeclarable (%s)"
-            % (len(unreadable), len(files), ", ".join(sorted(unreadable))),
+            % (
+                len(unreadable),
+                len(files),
+                ", ".join(u.path for u in unreadable),
+            ),
             file=sys.stderr,
         )
         return 2
@@ -243,6 +273,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     totals[scanner.ORDINAL],
                 )
             )
+            if labels:
+                print(
+                    "  (%d test names were not read as ordinals: --label-pattern `%s`)"
+                    % (len(labels), args.label_pattern)
+                )
         return 0
 
     baseline_present = baseline_path.is_file()
@@ -251,7 +286,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("RC 2: %s" % error, file=sys.stderr)
         return 2
 
-    ups, zombies = _compare(measured, baseline, sorted(unreadable))
+    ups, zombies = _compare(measured, baseline, [u.path for u in unreadable])
     rc = 1 if (ups or zombies) else 0
     if args.strict and totals[scanner.SHARED]:
         rc = 1
@@ -262,7 +297,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 {
                     "files": len(files),
                     "parsed": parsed,
-                    "unparsed": unreadable,
+                    "unparsed": [
+                        {"path": u.path, "lineno": u.lineno, "reason": u.reason}
+                        for u in unreadable
+                    ],
+                    "label_pattern": args.label_pattern,
+                    "labels_set_aside": labels,
                     "total": totals,
                     "collisions": [
                         {
@@ -299,13 +339,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     if unreadable:
         if args.detail:
-            for path, reason in sorted(unreadable.items()):
-                print("  NOT MEASURED %s (%s)" % (path, reason))
+            for u in unreadable:
+                print("  NOT MEASURED %s" % u.report_line())
         else:
             print(
                 "  (%d of %d files did not parse: not measured, not counted as zero,"
                 " their declared debt is frozen in place; --detail lists them,"
                 " --strict-syntax refuses)" % (len(unreadable), len(files))
+            )
+    if labels:
+        if args.detail:
+            for name in labels:
+                print("  LABEL %s (the number is a label, not a sequence ordinal)" % name)
+        else:
+            print(
+                "  (%d test names set aside by --label-pattern `%s`: their number is a label,"
+                " not a sequence ordinal; --detail lists them)"
+                % (len(labels), args.label_pattern)
             )
     hidden_ordinal = 0
     hidden_shared = 0

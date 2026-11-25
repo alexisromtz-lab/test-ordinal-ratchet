@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -45,6 +46,31 @@ class TheWindow:
         pass
 
     def test_36_a(self):
+        pass
+"""
+
+# Measured in Django: `400` is an HTTP status code, not the 400th test.
+LAW_WITH_HTTP_CODE_LABELS = """
+class TestDebug:
+    def test_400_bad_request(self):
+        pass
+
+    def test_400_empty_body(self):
+        pass
+
+    def test_36_the_real_sequence(self):
+        pass
+
+    def test_36_also_the_real_sequence(self):
+        pass
+"""
+
+LAW_WITH_SHADOW_INSIDE_LABELS = """
+class TestDebug:
+    def test_404_missing(self):
+        pass
+
+    def test_404_missing(self):
         pass
 """
 
@@ -109,8 +135,25 @@ def test_1_real():
         self.assertEqual(tally, {"shadow": 1, "ordinal": 0, "shared": 0})
 
     def test_a_file_that_does_not_parse_is_unreadable_not_zero(self) -> None:
-        _cols, unreadable = scanner.scan({"law.py": "def test_1(:\n"})
-        self.assertEqual(list(unreadable), ["law.py"])
+        _cols, unreadable, _labels = scanner.scan({"law.py": "def test_1(:\n"})
+        self.assertEqual([u.path for u in unreadable], ["law.py"])
+        self.assertIsNotNone(unreadable[0].lineno)
+
+    def test_a_label_pattern_takes_the_number_out_of_the_ordinal_pass(self) -> None:
+        defs = scanner.definitions(LAW_WITH_HTTP_CODE_LABELS, "law.py")
+        loose = scanner.count(scanner.collisions(defs))
+        tight = scanner.count(scanner.collisions(defs, re.compile(r"^test_[1-5]\d\d_")))
+        self.assertEqual(loose["ordinal"], 2)
+        self.assertEqual(tight["ordinal"], 1)
+        self.assertEqual(
+            scanner.labels_set_aside(defs, re.compile(r"^test_[1-5]\d\d_")),
+            ["test_400_bad_request", "test_400_empty_body"],
+        )
+
+    def test_a_label_pattern_never_reaches_the_shadow_pass(self) -> None:
+        defs = scanner.definitions(LAW_WITH_SHADOW_INSIDE_LABELS, "law.py")
+        cols = scanner.collisions(defs, re.compile(r"^test_[1-5]\d\d_"))
+        self.assertEqual([c.kind for c in cols], [scanner.SHADOW])
 
 
 class TheRatchetBites(unittest.TestCase):
@@ -250,7 +293,38 @@ class TheRatchetBites(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         data = json.loads(out)
         self.assertEqual((data["files"], data["parsed"]), (2, 1))
-        self.assertEqual(list(data["unparsed"]), ["tests/test_b.py"])
+        unparsed = data["unparsed"]
+        self.assertEqual([u["path"] for u in unparsed], ["tests/test_b.py"])
+        self.assertEqual(unparsed[0]["lineno"], 1)
+        self.assertIn("syntax", unparsed[0]["reason"])
+
+    def test_a_label_pattern_silences_the_status_code_noise_and_says_so(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_HTTP_CODE_LABELS)
+        _rc, out = _run(self._argv())
+        self.assertIn("ordinal 2", out)
+
+        argv = self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_"]
+        rc, out = _run(argv)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ordinal 1", out)
+        self.assertIn("2 test names set aside by --label-pattern", out)
+
+        _rc, out = _run(argv + ["--detail"])
+        self.assertIn("LABEL test_400_bad_request", out)
+        data = json.loads(_run(argv + ["--json"])[1])
+        self.assertEqual(len(data["labels_set_aside"]), 2)
+
+    def test_a_shadow_inside_the_label_space_is_still_charged(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_SHADOW_INSIDE_LABELS)
+        rc, out = _run(self._argv() + ["--label-pattern", r"^test_[1-5]\d\d_"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("overwrites the definition at", out)
+
+    def test_a_malformed_label_pattern_is_rc_2(self) -> None:
+        _write(self.root, "tests/test_a.py", LAW_WITH_HTTP_CODE_LABELS)
+        rc, out = _run(self._argv() + ["--label-pattern", "test_("])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("is not a regex", out)
 
     def test_json_carries_the_counts_and_the_rc(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_SHARED_ORDINAL)

@@ -14,6 +14,12 @@ identifiers get reused when branches merge.
 
 Read with `ast`, not with regular expressions: a name inside a docstring or a
 comment is not a definition.
+
+A number glued to a word is not a sequence ordinal (`test_1d_margins`,
+`test_20news`, `test_20643_comment` are a dimension, a dataset and an issue
+number). No lexical rule separates those from `test_08b_case`, which IS the
+sub-case *b* of ordinal 8, so the label space is declared by the repository
+(`--label-pattern`) and never guessed here.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import re
-from typing import Dict, Iterable, Iterator, List, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Pattern, Sequence, Tuple
 
 RE_ORDINAL = re.compile(r"^test_(\d+)")
 
@@ -94,8 +100,15 @@ def definitions(source: str, path: str) -> List[Definition]:
     return list(_definitions(tree.body, "module", path))
 
 
-def collisions(defs: Sequence[Definition]) -> List[Collision]:
-    """Shadow always; ordinal inside one scope; `shared` only counted."""
+def collisions(
+    defs: Sequence[Definition], label: Optional[Pattern[str]] = None
+) -> List[Collision]:
+    """Shadow always; ordinal inside one scope; `shared` only counted.
+
+    `label` names tests whose number is a label rather than a sequence ordinal.
+    It never reaches the shadow pass: two identical names are two identical
+    names, whatever the pattern says.
+    """
     found: List[Collision] = []
 
     first_seen: Dict[Tuple[str, str, str], int] = {}
@@ -109,7 +122,7 @@ def collisions(defs: Sequence[Definition]) -> List[Collision]:
     groups: Dict[Tuple[str, int], List[Definition]] = {}
     for d in defs:
         match = RE_ORDINAL.match(d.name)
-        if match:
+        if match and not (label and label.search(d.name)):
             groups.setdefault((d.path, int(match.group(1))), []).append(d)
 
     for (path, number), group in sorted(groups.items()):
@@ -141,13 +154,40 @@ def count(cols: Iterable[Collision]) -> Dict[str, int]:
     return {kind: sum(1 for c in cols if c.kind == kind) for kind in CLASSES}
 
 
-def scan(sources: Dict[str, str]) -> Tuple[List[Collision], Dict[str, str]]:
-    """Return (collisions, unreadable). A source that does not parse is not guessed."""
+def labels_set_aside(defs: Sequence[Definition], label: Optional[Pattern[str]]) -> List[str]:
+    """The names the declaration kept out of the ordinal pass, so none is silent."""
+    if label is None:
+        return []
+    return sorted({d.name for d in defs if RE_ORDINAL.match(d.name) and label.search(d.name)})
+
+
+@dataclasses.dataclass(frozen=True)
+class Unreadable:
+    """A file that was not read: the loss is named, line and reason included."""
+
+    path: str
+    lineno: Optional[int]
+    reason: str
+
+    def report_line(self) -> str:
+        if self.lineno is None:
+            return "%s (%s)" % (self.path, self.reason)
+        return "%s (line %d: %s)" % (self.path, self.lineno, self.reason)
+
+
+def scan(
+    sources: Dict[str, str], label: Optional[Pattern[str]] = None
+) -> Tuple[List[Collision], List[Unreadable], List[str]]:
+    """Return (collisions, unreadable, labels). A source that does not parse is not guessed."""
     every: List[Collision] = []
-    unreadable: Dict[str, str] = {}
+    unreadable: List[Unreadable] = []
+    labels: set = set()
     for path in sorted(sources):
         try:
-            every.extend(collisions(definitions(sources[path], path)))
+            found = definitions(sources[path], path)
         except SyntaxError as error:
-            unreadable[path] = "line %s: %s" % (error.lineno, error.msg)
-    return every, unreadable
+            unreadable.append(Unreadable(path, error.lineno, error.msg))
+            continue
+        every.extend(collisions(found, label))
+        labels.update(labels_set_aside(found, label))
+    return every, unreadable, sorted(labels)

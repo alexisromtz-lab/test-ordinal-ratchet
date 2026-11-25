@@ -1,0 +1,10 @@
+- id: test-ordinal-ratchet
+  name: test-ordinal-ratchet
+  description: Fail when a test name is silently overwritten or reuses a sequence ordinal
+  entry: test-ordinal-ratchet
+  language: python
+  types: [python]
+  # The subject is the repository, not the staged subset: a file list would
+  # shrink the universe and the ratchet would compare a partial read against a
+  # whole-repository baseline (declaring resolved debt that was never looked at).
+  pass_filenames: false
