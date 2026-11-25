@@ -156,11 +156,59 @@ def count(cols: Iterable[Collision]) -> Dict[str, int]:
     return {kind: sum(1 for c in cols if c.kind == kind) for kind in CLASSES}
 
 
-def labels_set_aside(defs: Sequence[Definition], label: Optional[Pattern[str]]) -> List[str]:
-    """The names the declaration kept out of the ordinal pass, so none is silent."""
+def labels_set_aside(
+    defs: Sequence[Definition], label: Optional[Pattern[str]]
+) -> List[Definition]:
+    """The DEFINITIONS the declaration kept out of the ordinal pass, so none is silent.
+
+    Definitions, not distinct names: one label name used in three files is three
+    tests set aside, and collapsing them loses both the count and the locus.
+    """
     if label is None:
         return []
-    return sorted({d.name for d in defs if RE_ORDINAL.match(d.name) and label.search(d.name)})
+    return sorted(
+        (d for d in defs if RE_ORDINAL.match(d.name) and label.search(d.name)),
+        key=lambda d: (d.path, d.line),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class FileLabel:
+    """One file's ordinal space, split into the part read and the part set aside.
+
+    `ordinal_space = read + set_aside`, a disjoint union counted term by term:
+    neither summand is obtained by subtracting the other from a total.
+    """
+
+    path: str
+    set_aside: int
+    read: int
+
+    def report_line(self) -> str:
+        return "%s: %d set aside, %d read" % (self.path, self.set_aside, self.read)
+
+
+def label_census(
+    defs: Sequence[Definition], label: Optional[Pattern[str]]
+) -> List[FileLabel]:
+    """Per file with at least one set-aside name: the two terms of its ordinal space.
+
+    A scalar says how much was set aside but not where, and a count without a
+    locus is not a measurement: the file whose ordinal space is half-read is the
+    one a reader has to be able to find.
+    """
+    if label is None:
+        return []
+    aside: Dict[str, int] = {}
+    read: Dict[str, int] = {}
+    for d in defs:
+        if not RE_ORDINAL.match(d.name):
+            continue
+        if label.search(d.name):
+            aside[d.path] = aside.get(d.path, 0) + 1
+        else:
+            read[d.path] = read.get(d.path, 0) + 1
+    return [FileLabel(path, aside[path], read.get(path, 0)) for path in sorted(aside)]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -179,17 +227,23 @@ class Unreadable:
 
 def scan(
     sources: Dict[str, str], label: Optional[Pattern[str]] = None
-) -> Tuple[List[Collision], List[Unreadable], List[str]]:
-    """Return (collisions, unreadable, labels). A source that does not parse is not guessed."""
+) -> Tuple[List[Collision], List[Unreadable], List[Definition], List[FileLabel]]:
+    """Return (collisions, unreadable, set_aside, census), one parse per file.
+
+    A source that does not parse is not guessed, and it joins no census: an
+    unread file has no measured ordinal space, not an empty one.
+    """
     every: List[Collision] = []
     unreadable: List[Unreadable] = []
-    labels: set = set()
+    aside: List[Definition] = []
+    seen: List[Definition] = []
     for path in sorted(sources):
         try:
             found = definitions(sources[path], path)
         except SyntaxError as error:
             unreadable.append(Unreadable(path, error.lineno, error.msg))
             continue
+        seen.extend(found)
         every.extend(collisions(found, label))
-        labels.update(labels_set_aside(found, label))
-    return every, unreadable, sorted(labels)
+        aside.extend(labels_set_aside(found, label))
+    return every, unreadable, aside, label_census(seen, label)

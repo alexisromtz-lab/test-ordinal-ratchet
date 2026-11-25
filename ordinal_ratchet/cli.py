@@ -231,6 +231,10 @@ def _files(n: int) -> str:
     return "1 file" if n == 1 else "%d files" % n
 
 
+def _definitions(n: int) -> str:
+    return "1 test definition" if n == 1 else "%d test definitions" % n
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="test-ordinal-ratchet",
@@ -312,7 +316,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _declare_other(other, outside=True)
         return 2
 
-    cols, unreadable, labels = scanner.scan(_read(files), label)
+    cols, unreadable, set_aside, census = scanner.scan(_read(files), label)
     parsed = len(files) - len(unreadable)
     if not parsed:
         for u in unreadable:
@@ -373,10 +377,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     totals[scanner.ORDINAL],
                 )
             )
-            if labels:
+            if set_aside:
                 print(
-                    "  (%d test names were not read as ordinals: --label-pattern `%s`)"
-                    % (len(labels), args.label_pattern)
+                    "  (%s were not read as ordinals: --label-pattern `%s`)"
+                    % (_definitions(len(set_aside)), args.label_pattern)
                 )
         if shadows:
             print(
@@ -413,7 +417,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "patterns": list(patterns),
                     "other_patterns": other,
                     "label_pattern": args.label_pattern,
-                    "labels_set_aside": labels,
+                    "labels_set_aside": [
+                        {
+                            "path": d.path,
+                            "lineno": d.line,
+                            "scope": d.scope,
+                            "name": d.name,
+                        }
+                        for d in set_aside
+                    ],
+                    "label_files": [
+                        {
+                            "path": f.path,
+                            "set_aside": f.set_aside,
+                            "read": f.read,
+                        }
+                        for f in census
+                    ],
                     "total": totals,
                     "collisions": [
                         {
@@ -458,15 +478,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 " their declared debt is frozen in place; --detail lists them,"
                 " --strict-syntax refuses)" % (len(unreadable), len(files))
             )
-    if labels:
+    if set_aside:
         if args.detail:
-            for name in labels:
-                print("  LABEL %s (the number is a label, not a sequence ordinal)" % name)
+            for d in set_aside:
+                print(
+                    "  LABEL %s:%d %s (the number is a label, not a sequence ordinal)"
+                    % (d.path, d.line, d.name)
+                )
+            for f in census:
+                if f.set_aside and f.read:
+                    print("  HALF READ %s" % f.report_line())
         else:
             print(
-                "  (%d test names set aside by --label-pattern `%s`: their number is a label,"
-                " not a sequence ordinal; --detail lists them)"
-                % (len(labels), args.label_pattern)
+                "  (%s set aside by --label-pattern `%s`: their number is a label,"
+                " not a sequence ordinal; --detail names the file and line of each)"
+                % (_definitions(len(set_aside)), args.label_pattern)
             )
     hidden_ordinal = 0
     hidden_shared = 0

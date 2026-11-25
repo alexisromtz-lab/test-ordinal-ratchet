@@ -175,16 +175,53 @@ from the corpus this tool was extracted from (`test_08b_…`, `test_13b_…` are
 So the label space is **declared by the repository**, never guessed:
 
 ```console
-$ test-ordinal-ratchet tests --label-pattern '^test_\d+[a-zA-Z]'
+$ test-ordinal-ratchet . --label-pattern '^test_\d+[a-zA-Z]'
 ```
 
-Rows set aside are counted and printable, so nothing is silently discarded:
+Definitions set aside are counted and printable, so nothing is silently discarded:
 
 ```console
 test-ordinal-ratchet: 260 files · shadow 0 · ordinal 0 · shared 0
-  (15 test names set aside by --label-pattern `^test_\d+[a-zA-Z]`: their number is a label, not a sequence ordinal; --detail lists them)
+  (16 test definitions set aside by --label-pattern `^test_\d+[a-zA-Z]`: their number is a label, not a sequence ordinal; --detail names the file and line of each)
 RC 0: no new collisions over .ordinal-ratchet.json, on 260 of 260 files read
 ```
+
+The unit is the **definition**, not the name. `scikit-learn` sets aside 16 definitions in 9 files, and
+two of them are the same name: `test_1d_input` at `sklearn/ensemble/tests/test_forest.py:1150` and
+again at `sklearn/tree/tests/test_tree.py:1618`. Counting distinct names published **15**, which is
+neither the number of tests taken out of the ordinal pass nor a number any file can be found from.
+Declaring the label space is a declaration about *tests*, so it is counted in tests.
+
+The same run keeps the arithmetic per file, because `--detail` can only name a locus the census has.
+For every file with a set-aside name, `--json` publishes `label_files` next to `labels_set_aside`:
+
+```console
+$ test-ordinal-ratchet pandas/tests/io/sas --label-pattern '^test_\d+[a-zA-Z]' --json
+  "label_files": [
+    { "path": "test_sas7bdat.py", "read": 1, "set_aside": 2 }
+  ],
+  "labels_set_aside": [
+    { "lineno": 1083, "name": "test_0x40_control_byte", "path": "test_sas7bdat.py", "scope": "module" },
+    { "lineno": 1092, "name": "test_0x00_control_byte", "path": "test_sas7bdat.py", "scope": "module" }
+  ],
+```
+
+`ordinal_space(f) = read(f) + set_aside(f)`, both terms counted and never obtained by subtraction.
+A file with both terms non-zero is **half read**: its ordinal space is ratcheted only in part, so a
+reused ordinal that crosses the declaration (`test_2_x` against `test_2d_plot`) is invisible there by
+construction. `--detail` prints those files as `HALF READ path: N set aside, M read`.
+
+| suite | files | set-aside definitions | files touched | half read |
+|---|---|---|---|---|
+| `scikit-learn` | 260 | 16 | 9 | 0 |
+| `pandas` | 994 | 34 | 15 | 1 (`test_sas7bdat.py`, 2 set aside / 1 read) |
+| `apache/airflow` | 2 412 | 10 | 6 | 0 |
+| `aio-libs/aiohttp` | 79 | 9 | 4 | 0 |
+
+The one half-read file in `pandas` is the case the old scalar could not name: `test_0x40_control_byte`
+and `test_0x00_control_byte` are labels, one other ordinal in that file is read, and no ordinal
+number is shared between the two sides — measured, not assumed: across the four suites above the
+cross-overlap is `0`.
 
 Four recipes, each measured on a real suite:
 
@@ -234,18 +271,36 @@ test-ordinal-ratchet: 320 files · shadow 0 · ordinal 39 · shared 57
 RC 1: no baseline to ratchet against
 ```
 
+### What a zero is a zero over
+
+Three identities hold at once, and every term is published, so no term has to be inferred from
+another:
+
+```text
+files(any convention) = found  + other_patterns        the glob chose a universe; the rest is counted
+found                 = parsed + unparsed              a file that does not parse is not a zero
+ordinal_space(parsed) = read   + set_aside             per file, with locus (label_files)
+
+charged = ordinal collisions inside read               the ratchet lives here
+shadow  = every parsed definition, set-aside included  never frozen into a baseline, never "debt"
+```
+
+A count that cannot be located is not a measurement, so none is published alone: `unparsed`,
+`labels_set_aside` and `label_files` carry a `path` (and a `lineno` where a line exists), and
+`--detail` prints the same rows a human would read.
+
 ### Flags
 
 | flag | effect |
 |---|---|
 | `--baseline PATH` | baseline file (default `.ordinal-ratchet.json` in the cwd) |
 | `--write-baseline` | freeze the current counts as inherited debt |
-| `--label-pattern REGEX` | tests whose **name** matches are not read as sequence ordinals (never affects `shadow`) |
+| `--label-pattern REGEX` | tests whose **name** matches are not read as sequence ordinals (never affects `shadow`); counted per definition, with locus |
 | `--detail` | list every row, including the ones that are not charged |
 | `--strict` | also fail (`RC 1`) when two scopes of one file reuse a number |
 | `--strict-syntax` | fail (`RC 2`) when any file does not parse, instead of reading the rest |
 | `--version` | the installed distribution's version — the number to quote when reporting a finding |
-| `--json` | machine-readable output: counts, every collision, `ups`/`zombies`, `unreadable`, `labels_set_aside`, `patterns`, `other_patterns`, `rc` |
+| `--json` | machine-readable output: counts, every collision, `ups`/`zombies`, `unparsed`, `labels_set_aside` (with `lineno`), `label_files` (`read`/`set_aside` per file), `patterns`, `other_patterns`, `rc` |
 | `--pattern GLOB` | file glob (default `test_*.py`); **repeat it** to read several conventions in one run |
 
 ## The ratchet
@@ -338,7 +393,9 @@ Async definitions collide exactly like plain ones — same name in the same clas
 number in the same scope is an `ordinal`, whether the other side is `def` or `async def` — and the
 suite pins it so it cannot regress into a silent zero. `aiohttp`'s four raw rows are all one HTTP
 label again (`test_100_continue_*`: the `100 Continue` status), taken out by
-`--label-pattern '^test_[1-5]\d\d_'`, which sets aside nine names in that file.
+`--label-pattern '^test_[1-5]\d\d_'`, which sets aside nine definitions across four files
+(`test_client_functional.py:1155`, `test_urldispatch.py:1093` and `:1099`, `test_web_functional.py` five
+times, `test_web_response.py:832`).
 
 `sqlalchemy` is the row that justifies the unparseable-file granularity: four of its files do not
 parse because they use syntax newer than the interpreter (`test_tstring_py314.py` is Python 3.14
@@ -390,7 +447,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.2.3
+    rev: v0.2.4
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']
@@ -449,6 +506,13 @@ A full workflow is in `.github/workflows/ratchet.yml`.
   across the five latest repositories — live inside such a block. If yours does, the guard belongs at
   the branch, not in the name.
 - `shadow` reports the **last** binding and the line of the first one it overwrites.
+- **A half-read file is named, and its blind spot is bounded.** When `--label-pattern` takes some
+  names out of a file's ordinal space and leaves others in, an ordinal reused across the declaration
+  (`test_2_x` against `test_2d_plot`) is invisible there by construction: one side is not read. The
+  census in `--json` says which files those are and how the space splits; measured across
+  `scikit-learn` (0), `pandas` (1: `test_sas7bdat.py`), `airflow` (0) and `aiohttp` (0), the
+  cross-overlap is **0**. The declaration is the repository's own statement that those numbers are
+  not a sequence, so the crossing is not charged — it is declared instead of being silent.
 - Baseline keys are argument-relative: scanning `../other/tests` and `tests` from different
   directories produces different keys. Freeze the baseline from the directory you will run from.
   When two arguments would produce the same relative key (`a/tests/test_x.py` and

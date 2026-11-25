@@ -164,9 +164,10 @@ def test_1_real():
         self.assertEqual(tally, {"shadow": 1, "ordinal": 0, "shared": 0})
 
     def test_a_file_that_does_not_parse_is_unreadable_not_zero(self) -> None:
-        _cols, unreadable, _labels = scanner.scan({"law.py": "def test_1(:\n"})
+        _cols, unreadable, _aside, census = scanner.scan({"law.py": "def test_1(:\n"})
         self.assertEqual([u.path for u in unreadable], ["law.py"])
         self.assertIsNotNone(unreadable[0].lineno)
+        self.assertEqual(census, [])
 
     def test_a_label_pattern_takes_the_number_out_of_the_ordinal_pass(self) -> None:
         defs = scanner.definitions(LAW_WITH_HTTP_CODE_LABELS, "law.py")
@@ -175,8 +176,12 @@ def test_1_real():
         self.assertEqual(loose["ordinal"], 2)
         self.assertEqual(tight["ordinal"], 1)
         self.assertEqual(
-            scanner.labels_set_aside(defs, re.compile(r"^test_[1-5]\d\d_")),
+            [d.name for d in scanner.labels_set_aside(defs, re.compile(r"^test_[1-5]\d\d_"))],
             ["test_400_bad_request", "test_400_empty_body"],
+        )
+        self.assertEqual(
+            [d.line for d in scanner.labels_set_aside(defs, re.compile(r"^test_[1-5]\d\d_"))],
+            [3, 6],
         )
 
     def test_a_label_pattern_never_reaches_the_shadow_pass(self) -> None:
@@ -369,12 +374,45 @@ class TheRatchetBites(unittest.TestCase):
         rc, out = _run(argv)
         self.assertEqual(rc, 1, out)
         self.assertIn("ordinal 1", out)
-        self.assertIn("2 test names set aside by --label-pattern", out)
+        self.assertIn("2 test definitions set aside by --label-pattern", out)
 
         _rc, out = _run(argv + ["--detail"])
-        self.assertIn("LABEL test_400_bad_request", out)
+        self.assertIn("LABEL tests/test_a.py:", out)
+        self.assertIn("test_400_bad_request", out)
         data = json.loads(_run(argv + ["--json"])[1])
         self.assertEqual(len(data["labels_set_aside"]), 2)
+
+    def test_one_label_name_in_two_files_is_two_definitions_with_two_loci(self) -> None:
+        _write(self.root, "tests/test_a.py", "def test_2d_plot():\n    pass\n")
+        _write(self.root, "tests/test_b.py", "def test_2d_plot():\n    pass\n")
+        argv = self._argv() + ["--label-pattern", r"^test_\d+[a-zA-Z]", "--json"]
+        data = json.loads(_run(argv)[1])
+        self.assertEqual(
+            [(d["path"], d["lineno"], d["name"]) for d in data["labels_set_aside"]],
+            [
+                ("tests/test_a.py", 1, "test_2d_plot"),
+                ("tests/test_b.py", 1, "test_2d_plot"),
+            ],
+        )
+
+    def test_every_half_read_file_publishes_both_terms_of_its_ordinal_space(self) -> None:
+        _write(
+            self.root,
+            "tests/test_a.py",
+            "def test_1_a():\n    pass\n\ndef test_2d_plot():\n    pass\n\ndef test_3_b():\n    pass\n",
+        )
+        _write(self.root, "tests/test_b.py", "def test_2d_plot():\n    pass\n")
+        argv = self._argv() + ["--label-pattern", r"^test_\d+[a-zA-Z]", "--json"]
+        data = json.loads(_run(argv)[1])
+        self.assertEqual(
+            data["label_files"],
+            [
+                {"path": "tests/test_a.py", "set_aside": 1, "read": 2},
+                {"path": "tests/test_b.py", "set_aside": 1, "read": 0},
+            ],
+        )
+        rc, out = _run(self._argv() + ["--label-pattern", r"^test_\d+[a-zA-Z]", "--detail"])
+        self.assertIn("HALF READ tests/test_a.py: 1 set aside, 2 read", out)
 
     def test_a_shadow_inside_the_label_space_is_still_charged(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_SHADOW_INSIDE_LABELS)
