@@ -81,6 +81,7 @@ The floor is the interpreter, so the ceiling is measured and published instead o
 interpreters, `2026-11-25` — a file the old interpreter cannot read is *not* a file that hides a
 collision:
 
+<!-- audit-table: scanned=tests/ -->
 | repository | test files | unread @3.9.6 | unread @3.12.13 | unread @3.14.8 | shadow |
 |---|---|---|---|---|---|
 | `apache/airflow` | 2 412 | 6 | 0 | 0 | 0 |
@@ -351,6 +352,7 @@ A debt list nobody prunes stops being evidence. That is why shrinking is legal b
 Seventeen well-known suites, shallow clone of the default branch, 2026-11-25. Scanned directory is
 `tests/` when the repository has it, the repository root otherwise:
 
+<!-- audit-table: scanned=tests/ -->
 | repository | test files | unparsed @3.9.6 | shadow | ordinal | shared | RC |
 |---|---|---|---|---|---|---|
 | `django/django` | 629 | 2 | 0 | 5 | 3 | 1 |
@@ -373,6 +375,7 @@ Seventeen well-known suites, shallow clone of the default branch, 2026-11-25. Sc
 Five more, same day, chosen for size rather than for tidiness — and measured twice, with and without
 a declared label space:
 
+<!-- audit-table: scanned=tests/ -->
 | repository | test files | shadow | ordinal (raw) | ordinal (labels declared) |
 |---|---|---|---|---|
 | `apache/airflow` | 2 412 | 0 | 5 | **1** |
@@ -396,6 +399,7 @@ Five async-heavy suites, scanned at the **repository root** — `fastapi`, `type
 `starlette` also appear above, there scanned at `tests/`, which is 21 files less — because
 `async def test_x` is an `ast.AsyncFunctionDef`, a different node type from `ast.FunctionDef`:
 
+<!-- audit-table: scanned=. -->
 | repository | test files | `async def` tests | shadow | ordinal (raw) | ordinal (labels declared) |
 |---|---|---|---|---|---|
 | `aiohttp/aiohttp` | 79 | 2 156 | 0 | 4 | **0** |
@@ -454,6 +458,53 @@ test_proof.py::test_force_color
 ```
 
 One test collected out of four. `git` sees nothing; CI stays green.
+
+### The table has a reader
+
+Every number above is a claim, and a claim nobody re-measures ages in place. `tools/auditar_tabla.py`
+takes a directory of clones, measures each repository **through the package's own entry point**, and
+compares the row against the table:
+
+```bash
+mkdir -p /tmp/corpus && git clone -q --depth 1 https://github.com/Textualize/rich /tmp/corpus/Textualize__rich
+python tools/auditar_tabla.py --corpus /tmp/corpus --check
+```
+
+A clone is found by its `owner__repo` name (or by the bare repository name). Each table declares the
+universe it scanned in an HTML comment on the line directly above it — `scanned=tests/`, or
+`scanned=.` for the repository root — and the reader scans exactly that; `tests/` and the repository
+root are not the same universe, and `fastapi` is 550 files in one and 567 in the other, which is the
+whole reason the declaration is machine-readable instead of a sentence. A table without one is
+`NO_MEDIDO`, not a guess.
+
+Three verdicts, and none of them is silence:
+
+| verdict | meaning |
+| -- | -- |
+| `MATCH` | the row and the measurement agree |
+| `DRIFT` | the row says one number, the tree says another — `RC 1`, both printed |
+| `NO_MEDIDO` | no clone, no declared scope, or a column no instrument here reproduces |
+
+`RC 2` when nothing at all was compared: a run over an empty corpus is not a pass. Columns the tool
+cannot reproduce are named rather than skipped — `` `async def` tests `` (the table's own second
+pass) and `ordinal (labels declared)` (the per-repository pattern is not published in the table) —
+and a column whose header names an interpreter other than the one running the check is refused one
+column at a time, because a count of unparsed files is a fact about grammar:
+
+```
+$ python3 tools/auditar_tabla.py --corpus /tmp/corpus --check
+MATCH     fastapi/fastapi (line 90, scanned tests/)
+          test files                   table 550     measured 550     ok
+          unread @3.12.13              NO_MEDIDO: the table declares 3.12.13, this check runs 3.9: a count of unparsed files is a fact about grammar
+...
+21 values compared · 0 drift
+```
+
+Measured, not assumed: over two clones (`Textualize/rich`, `fastapi/fastapi`) the run compares **21**
+published values across four rows and drifts on none; rewriting one of them — `63` files to `64` —
+turns the same run into `DRIFT Textualize/rich (line 101) · test files table 64 · measured 63` and
+`RC 1`. The instrument that reports drift has itself been made to drift on purpose.
+
 
 ## pre-commit
 
