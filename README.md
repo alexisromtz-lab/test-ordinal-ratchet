@@ -207,6 +207,7 @@ RC 1: no baseline to ratchet against
 | `--detail` | list every row, including the ones that are not charged |
 | `--strict` | also fail (`RC 1`) when two scopes of one file reuse a number |
 | `--strict-syntax` | fail (`RC 2`) when any file does not parse, instead of reading the rest |
+| `--version` | the installed distribution's version — the number to quote when reporting a finding |
 | `--json` | machine-readable output: counts, every collision, `ups`/`zombies`, `unreadable`, `labels_set_aside`, `rc` |
 | `--pattern GLOB` | file glob (default `test_*.py`) |
 
@@ -352,7 +353,7 @@ needed:
 ```yaml
 repos:
   - repo: https://github.com/alexisromtz-lab/test-ordinal-ratchet
-    rev: v0.2.1
+    rev: v0.2.2
     hooks:
       - id: test-ordinal-ratchet
         args: ["tests", "--label-pattern", '^test_\d+[a-zA-Z]']

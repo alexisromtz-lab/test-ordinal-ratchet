@@ -371,6 +371,13 @@ class TheRatchetBites(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("overwrites the definition at", out)
 
+    def test_the_version_is_answerable_without_a_tree(self) -> None:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit) as exit_:
+            cli.main(["--version"])
+        self.assertEqual(exit_.exception.code, 0)
+        self.assertEqual(buf.getvalue().strip(), "test-ordinal-ratchet " + cli._VERSION)
+
     def test_a_baseline_never_absorbs_a_shadow(self) -> None:
         _write(self.root, "tests/test_a.py", LAW_WITH_SHADOW)
         rc, out = _run(self._argv() + ["--write-baseline"])

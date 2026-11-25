@@ -40,6 +40,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import scanner
 
+try:
+    from importlib.metadata import version as _installed_version
+
+    _VERSION = _installed_version("test-ordinal-ratchet")
+except Exception:  # a source checkout that was never installed
+    _VERSION = "0+unknown"
+
 DEFAULT_BASELINE = ".ordinal-ratchet.json"
 BASELINE_VERSION = 1
 
@@ -174,6 +181,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         description="Detect test names that overwrite each other or reuse an ordinal, "
         "with a one-way ratchet over inherited debt.",
     )
+    parser.add_argument("--version", action="version", version="%(prog)s " + _VERSION)
     parser.add_argument("paths", nargs="*", default=["."], help="directories or files")
     parser.add_argument("--pattern", default="test_*.py", help="file glob inside directories")
     parser.add_argument(
