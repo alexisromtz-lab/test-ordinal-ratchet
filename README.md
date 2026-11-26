@@ -564,7 +564,7 @@ A full workflow is in `.github/workflows/ratchet.yml`.
 
 ## How this is tested
 
-55 tests, and a mutation audit of the tests themselves. A passing test says the code does what the
+57 tests, and a mutation audit of the tests themselves. A passing test says the code does what the
 test asserts; it does not say the test would notice if the code stopped doing it, and a guard whose
 removal no test notices is not a guard — it is a comment with a colour.
 
@@ -572,16 +572,22 @@ removal no test notices is not a guard — it is a comment with a colour.
 python tools/mutar.py
 ```
 
-The harness holds **28 mutations**, each hoisting one promise out of `scanner.py`, `cli.py` or
-`__init__.py`: the
+The harness holds **29 mutations**, each hoisting one promise out of `scanner.py`, `cli.py`,
+`__init__.py` or the citation surface: the
 ordinal needs its underscore, `async def` is read, a class body is read, a repeated name in one scope
 is a shadow, the label declaration is honoured in the ordinal pass, a frozen glob **and** a frozen
 label pattern are both checked on read, a shadow can never be frozen into the baseline, two homonym
-roots keep two keys, and the version a consumer reads is the installed distribution's on both
-surfaces (`__version__` and `--version`). Every anchor must appear exactly once before anything is
-written; the package
-and its tests are copied into a temporary directory and the suite runs there, so nothing touches the
-checkout.
+roots keep two keys, the version a consumer reads is the installed distribution's on both
+surfaces (`__version__` and `--version`), and a citation names the version the distribution
+declares. Every anchor must appear exactly once before anything is
+written; the whole tree is copied into a temporary directory and the suite runs there, so nothing
+touches the checkout. The sandbox is the repository and not a pair of directories on purpose: with
+only `ordinal_ratchet/` and `tests/` copied, a test that reads `CITATION.cff` fails in *every*
+sandbox and every mutant dies for the same wrong reason.
+
+That is why one row is a **control** rather than a mutation: editing a keyword in `.zenodo.json` —
+something no test asserts — must *survive*. A control that dies means the harness is measuring its
+own incomplete sandbox, and the audit reports `RC 2` instead of a green it did not earn.
 
 | RC | meaning |
 | -- | -- |
@@ -599,7 +605,8 @@ ratcheted and an unratcheted count leaked the unratcheted one into the frozen ba
 falsifier per hole, and one strengthened to a file that carries both kinds of debt:
 
 ```
-28 mutations · 28 killed · 0 survived
+29 mutations · 29 killed · 0 survived
+CONTROL survived CONTROL: a keyword no test asserts survives
 ```
 
 `tools/` is not part of the installed package: this is the audit of the repository, not a feature of
@@ -650,6 +657,19 @@ the wheel.
   `b/tests/test_x.py`), each key is prefixed with the argument it came from, so both files are
   measured; the same file reached twice is measured once. Keying on the relative path alone silently
   dropped the second file — collisions included.
+
+## Cite this
+
+`CITATION.cff` and `.zenodo.json` carry the same facts the distribution declares — title, version
+`0.2.6`, author, ORCID, MIT — and two tests compare them against `pyproject.toml`, because a
+citation that names a version nobody released is the `v0.2.6` defect in a new place. The mutation
+audit inverts the citation version too.
+
+**DOI: not yet minted.** The deposit is deliberate rather than automatic: a DOI cannot be
+withdrawn, so it is a decision, not a side effect. The metadata is in place for it — with Zenodo's
+GitHub integration enabled, each release would be archived with these fields as declared, and the
+minted DOI is the only identifier this work can carry that survives a repository rename, a deleted
+post and a dead domain.
 
 ## License
 

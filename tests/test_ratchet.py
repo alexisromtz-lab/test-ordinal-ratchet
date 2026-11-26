@@ -647,5 +647,39 @@ class ThePublishedIdentity(unittest.TestCase):
         )
 
 
+class TheCitationSurface(unittest.TestCase):
+    """One fact, one value. A citation that names a different version than the
+    distribution declares is the same defect that produced `v0.2.6`: a fact
+    written in two places with nothing comparing them. Adding the citation
+    surface adds a second place the version is written, so the reader that
+    compares them ships in the same commit.
+    """
+
+    root = Path(__file__).resolve().parents[1]
+
+    def _project_version(self) -> str:
+        text = (self.root / "pyproject.toml").read_text(encoding="utf-8")
+        match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+        self.assertIsNotNone(match, "pyproject.toml declares no version")
+        return match.group(1)
+
+    def _cff_scalar(self, key: str) -> str:
+        text = (self.root / "CITATION.cff").read_text(encoding="utf-8")
+        match = re.search(r"^%s:\s*(.+?)\s*$" % re.escape(key), text, re.MULTILINE)
+        self.assertIsNotNone(match, "CITATION.cff has no `%s:`" % key)
+        return match.group(1).strip().strip('"')
+
+    def _zenodo(self) -> dict:
+        return json.loads((self.root / ".zenodo.json").read_text(encoding="utf-8"))
+
+    def test_the_citation_names_the_declared_version(self) -> None:
+        declared = self._project_version()
+        self.assertEqual(self._cff_scalar("version"), declared)
+        self.assertEqual(self._zenodo()["version"], declared)
+
+    def test_the_two_citation_surfaces_agree_on_the_title(self) -> None:
+        self.assertEqual(self._cff_scalar("title"), self._zenodo()["title"])
+
+
 if __name__ == "__main__":
     unittest.main()

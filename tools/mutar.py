@@ -201,17 +201,38 @@ MUTATIONS: List[Mutation] = [
         'parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")',
         "the CLI reports the package version, not its own literal",
     ),
+    Mutation(
+        "CITATION.cff",
+        'version: "0.2.6"',
+        'version: "0.0.0"',
+        "a citation names the version the distribution declares",
+    ),
+]
+
+# A mutation no test should notice must survive. It measures the harness, not the
+# tool: with a partial sandbox every mutant dies for the same wrong reason and the
+# audit publishes a green it did not earn. A control that dies is RC 2.
+CONTROLS: List[Mutation] = [
+    Mutation(
+        ".zenodo.json",
+        '"keywords": [',
+        '"keywords": ["control-never-asserted", ',
+        "CONTROL: a keyword no test asserts survives",
+    ),
 ]
 
 
 def one(mutation: Mutation) -> str:
     """None when the mutant is dead (the suite fails), else why it lived."""
     with tempfile.TemporaryDirectory(prefix="mut-") as tmp:
-        sandbox = pathlib.Path(tmp)
-        for name in ("ordinal_ratchet", "tests"):
-            shutil.copytree(
-                ROOT / name, sandbox / name, ignore=shutil.ignore_patterns("__pycache__")
-            )
+        sandbox = pathlib.Path(tmp) / "tree"
+        shutil.copytree(
+            ROOT,
+            sandbox,
+            ignore=shutil.ignore_patterns(
+                "__pycache__", "*.egg-info", "dist", "build", ".git", ".venv", ".venv-*"
+            ),
+        )
         target = sandbox / mutation.path
         source = target.read_text(encoding="utf-8")
         if source.count(mutation.anchor) != 1:
@@ -234,6 +255,7 @@ def main(argv: List[str]) -> int:
     args = parser.parse_args(argv)
 
     rows = []
+    controls = []
     broken = False
     for mutation in MUTATIONS:
         lived = one(mutation)
@@ -241,14 +263,34 @@ def main(argv: List[str]) -> int:
             broken = True
         rows.append({"label": mutation.label, "killed": lived is None, "why": lived})
 
+    for control in CONTROLS:
+        lived = one(control)
+        if lived is None:
+            broken = True
+            print(
+                "RC 2: a control died — the harness measures its own sandbox, not the tool: %s"
+                % control.label,
+                file=sys.stderr,
+            )
+        elif lived.startswith("anchor"):
+            broken = True
+        controls.append({"label": control.label, "survived": lived is not None})
+
     killed = sum(1 for row in rows if row["killed"])
     if args.json:
-        print(json.dumps({"mutations": len(rows), "killed": killed, "rows": rows}, indent=2))
+        print(
+            json.dumps(
+                {"mutations": len(rows), "killed": killed, "rows": rows, "controls": controls},
+                indent=2,
+            )
+        )
     else:
         for row in rows:
             verdict = "KILLED  " if row["killed"] else "SURVIVED"
             print("%s %s%s" % (verdict, row["label"], "" if row["killed"] else " — %s" % row["why"]))
         print("%d mutations · %d killed · %d survived" % (len(rows), killed, len(rows) - killed))
+        for row in controls:
+            print("CONTROL survived %s" % row["label"] if row["survived"] else "CONTROL DIED %s" % row["label"])
     if broken:
         print("RC 2: the harness cannot measure: an anchor is missing or not unique", file=sys.stderr)
         return 2

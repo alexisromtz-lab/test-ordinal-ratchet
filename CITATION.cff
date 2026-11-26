@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If this instrument saved you a lost test, cite the version you ran -- not the idea."
+title: "test-ordinal-ratchet: detecting shadowed and ordinal-colliding test names in Python"
+abstract: >-
+  Zero-dependency AST detector for Python test suites that separates three distinct collision classes: shadow (same scope, same name -- the later definition silently overwrites the earlier one and CI stays green), ordinal (same scope, same numeric stem -- ratcheted one way), and shared (same number, different class -- legal, reported, charged only under --strict). Measured over 7,782 test files in 23 public repositories; it found two tests in Textualize/rich that no longer run.
+authors:
+  - family-names: "Román Martínez"
+    given-names: "José Alexis"
+    orcid: "https://orcid.org/0009-0001-9116-075X"
+type: software
+license: MIT
+repository-code: "https://github.com/alexisromtz-lab/test-ordinal-ratchet"
+version: "0.2.6"
+date-released: "2026-11-25"
+keywords:
+  - python
+  - static-analysis
+  - testing
+  - ci
+  - ast
