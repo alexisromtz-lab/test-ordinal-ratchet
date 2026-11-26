@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,24 @@ import tempfile
 from typing import List, NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _declared_version() -> str:
+    """The version the distribution declares, read where it is declared.
+
+    A mutation anchored on a literal version stops measuring the moment the
+    version moves: the anchor is found 0 times and the harness reports RC 2.
+    """
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if match is None:
+        raise SystemExit("pyproject.toml declares no version")
+    if match.group(1) == "0.0.0":
+        raise SystemExit("the citation mutation would be a no-op at version 0.0.0")
+    return match.group(1)
+
+
+_DECLARED_VERSION = _declared_version()
 
 
 class Mutation(NamedTuple):
@@ -203,7 +222,7 @@ MUTATIONS: List[Mutation] = [
     ),
     Mutation(
         "CITATION.cff",
-        'version: "0.2.6"',
+        'version: "%s"' % _DECLARED_VERSION,
         'version: "0.0.0"',
         "a citation names the version the distribution declares",
     ),

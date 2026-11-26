@@ -10,8 +10,8 @@ authors:
 type: software
 license: MIT
 repository-code: "https://github.com/alexisromtz-lab/test-ordinal-ratchet"
-version: "0.2.6"
-date-released: "2026-11-25"
+version: "0.2.7"
+date-released: "2026-11-26"
 keywords:
   - python
   - static-analysis

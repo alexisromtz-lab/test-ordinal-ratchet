@@ -1,0 +1,4 @@
+include CITATION.cff
+include .zenodo.json
+include LICENSE
+include README.md
