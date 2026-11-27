@@ -25,8 +25,13 @@ No runtime dependencies, Python ≥ 3.9:
 ```console
 $ pip install .
 $ test-ordinal-ratchet tests
-test-ordinal-ratchet: 320 files · shadow 0 · ordinal 39 · shared 57
+test-ordinal-ratchet: 1 file · shadow 0 · ordinal 0 · shared 0
+RC 0: no new collisions over .ordinal-ratchet.json, on 1 of 1 file read
 ```
+
+Those zeros are the honest reading of this repository's own single test file, not a claim about
+yours. The 320-file counts that appear further down belong to the benchmark corpus named in
+[Declared limits](#declared-limits), and no command in this section reports them.
 
 Without installing anything:
 

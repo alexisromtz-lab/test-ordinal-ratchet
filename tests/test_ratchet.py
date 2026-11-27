@@ -647,6 +647,34 @@ class ThePublishedIdentity(unittest.TestCase):
         )
 
 
+class TheInstallDemo(unittest.TestCase):
+    """The first console block publishes a total; this runs the command that prints it.
+
+    Measured 2026-11-27: the block showed `320 files · shadow 0 · ordinal 39 · shared 57` over
+    `tests`, a universe that directory does not have -- it holds one file, and the command prints
+    `1 file · shadow 0 · ordinal 0 · shared 0`. The 320-file figures belong to an external corpus
+    named further down. A published total with no reader is prose, and prose moves alone.
+    """
+
+    root = Path(__file__).resolve().parents[1]
+
+    def test_the_install_totals_are_what_the_tool_prints_over_tests(self) -> None:
+        readme = (self.root / "README.md").read_text(encoding="utf-8")
+        seccion = readme.split("## Install", 1)[1].split("\n## ", 1)[0]
+        declaradas = [l for l in seccion.splitlines() if l.startswith("test-ordinal-ratchet: ")]
+        self.assertTrue(declaradas, "the Install section publishes no totals line")
+        with tempfile.TemporaryDirectory() as tmp:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli.main(["--baseline", os.path.join(tmp, ".ordinal-ratchet.json"),
+                          str(self.root / "tests")])
+            salida = buf.getvalue()
+        reales = [l for l in salida.splitlines() if l.startswith("test-ordinal-ratchet: ")]
+        self.assertEqual(len(reales), 1, "the run printed no totals line: %r" % salida)
+        self.assertEqual(set(declaradas), set(reales),
+                         "the Install demo publishes totals its own command does not print")
+
+
 class TheCitationSurface(unittest.TestCase):
     """One fact, one value. A citation that names a different version than the
     distribution declares is the same defect that produced `v0.2.6`: a fact
