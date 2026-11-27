@@ -10,6 +10,7 @@ authors:
 type: software
 license: MIT
 repository-code: "https://github.com/alexisromtz-lab/test-ordinal-ratchet"
+doi: "10.5281/zenodo.24547853"
 version: "0.2.7"
 date-released: "2026-11-26"
 keywords:

@@ -661,15 +661,15 @@ the wheel.
 ## Cite this
 
 `CITATION.cff` and `.zenodo.json` carry the same facts the distribution declares — title, version
-`0.2.6`, author, ORCID, MIT — and two tests compare them against `pyproject.toml`, because a
+`0.2.7`, author, ORCID, MIT — and the tests compare them against `pyproject.toml`, because a
 citation that names a version nobody released is the `v0.2.6` defect in a new place. The mutation
 audit inverts the citation version too.
 
-**DOI: not yet minted.** The deposit is deliberate rather than automatic: a DOI cannot be
-withdrawn, so it is a decision, not a side effect. The metadata is in place for it — with Zenodo's
-GitHub integration enabled, each release would be archived with these fields as declared, and the
-minted DOI is the only identifier this work can carry that survives a repository rename, a deleted
-post and a dead domain.
+**DOI: `10.5281/zenodo.24547853`** (version 0.2.7, concept `10.5281/zenodo.24547852`). The deposit
+is deliberate rather than automatic: a DOI cannot be withdrawn, so it is a decision, not a side
+effect. It is the only identifier this work can carry that survives a repository rename, a deleted
+post and a dead domain — so this section names it, `CITATION.cff` names it, and a test fails if the
+two ever disagree.
 
 ## License
 

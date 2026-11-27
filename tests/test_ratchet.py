@@ -680,6 +680,29 @@ class TheCitationSurface(unittest.TestCase):
     def test_the_two_citation_surfaces_agree_on_the_title(self) -> None:
         self.assertEqual(self._cff_scalar("title"), self._zenodo()["title"])
 
+    def test_the_minted_doi_is_named_on_both_surfaces(self) -> None:
+        """The DOI is fixed at deposit; a stale one cites a sibling version nobody can see.
+
+        Two identifiers are legitimate in the prose: the version DOI and the concept DOI that
+        covers every version. Zenodo allocates the concept adjacent to its first version
+        (measured 26-Nov-2026: 24547852/24547853, 24575075/24575076, 24575086/24575087), so the
+        only other identifier the README may name is that one -- and the pair is checked, not
+        assumed.
+        """
+        doi = self._cff_scalar("doi")
+        self.assertRegex(doi, r"^10\.5281/zenodo\.\d+$")
+        concept = "10.5281/zenodo.%d" % (int(doi.rsplit(".", 1)[1]) - 1)
+        named = set(re.findall(r"10\.5281/zenodo\.\d+",
+                               (self.root / "README.md").read_text(encoding="utf-8")))
+        self.assertEqual(named - {concept}, {doi}, "README names a DOI the citation does not")
+
+    def test_the_cite_section_names_the_version_it_cites(self) -> None:
+        """Prose carried `0.2.6` for a whole version: a written fact with no reader moves alone."""
+        readme = (self.root / "README.md").read_text(encoding="utf-8")
+        section = readme.split("## Cite this", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("`%s`" % self._project_version(), section,
+                      "the Cite this section names a version the package does not declare")
+
 
 if __name__ == "__main__":
     unittest.main()
